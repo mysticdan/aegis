@@ -1,0 +1,19 @@
+{
+  "provider": "openrouter",
+  "model": "moonshotai/kimi-k2.6:free",
+  "base_url": "https://openrouter.ai/api/v1",
+  "max_steps": 8,
+  "workspace": ".",
+  "tools": {
+    "read_file": true,
+    "write_file": true,
+    "list_dir": true,
+    "run_shell": true,
+    "http_request": false
+  },
+  "security": {
+    "allow_shell": true,
+    "require_confirmation_for_write": true,
+    "require_confirmation_for_shell": true
+  }
+}
