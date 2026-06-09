@@ -1,7 +1,21 @@
 #include <string.h>
+
 #include "aegis/command.h"
 
-AegisCommand aegis_command_from_string(const char *str) {
+AegisCommand aegis_command_from_string(const char *str)
+{
+    if (!str) {
+        return AEGIS_CMD_UNKNOWN;
+    }
+    if (strcmp(str, "help") == 0) {
+        return AEGIS_CMD_HELP;
+    }
+    if (strcmp(str, "version") == 0) {
+        return AEGIS_CMD_VERSION;
+    }
+    if (strcmp(str, "init") == 0) {
+        return AEGIS_CMD_INIT;
+    }
     if (strcmp(str, "run") == 0) {
         return AEGIS_CMD_RUN;
     }
@@ -23,8 +37,12 @@ AegisCommand aegis_command_from_string(const char *str) {
     return AEGIS_CMD_UNKNOWN;
 }
 
-const char *aegis_command_name(AegisCommand cmd) {
+const char *aegis_command_name(AegisCommand cmd)
+{
     switch (cmd) {
+        case AEGIS_CMD_HELP: return "help";
+        case AEGIS_CMD_VERSION: return "version";
+        case AEGIS_CMD_INIT: return "init";
         case AEGIS_CMD_RUN: return "run";
         case AEGIS_CMD_REPLAY: return "replay";
         case AEGIS_CMD_INSPECT: return "inspect";

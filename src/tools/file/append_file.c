@@ -3,7 +3,7 @@
 #include <sys/stat.h>
 
 #include "aegis/tool.h"
-#include "../tool_path.h"
+#include "aegis/tool_path.h"
 
 static AegisStatus execute_append_file(
     const AegisToolArgs *args,

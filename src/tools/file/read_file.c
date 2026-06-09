@@ -2,7 +2,7 @@
 #include <stdlib.h>
 
 #include "aegis/tool.h"
-#include "../tool_path.h"
+#include "aegis/tool_path.h"
 
 static AegisStatus execute_read_file(
     const AegisToolArgs *args,

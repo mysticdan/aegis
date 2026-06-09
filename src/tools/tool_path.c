@@ -6,7 +6,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "tool_path.h"
+#include "aegis/tool_path.h"
 
 static int copy_text(char *destination, size_t size, const char *source)
 {

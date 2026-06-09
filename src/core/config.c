@@ -567,6 +567,8 @@ void aegis_agent_profile_defaults(AegisAgentProfile *profile)
     profile->max_tool_calls = 24;
     profile->max_context_chars = 80000;
     profile->max_observation_chars = 16000;
+    profile->include_workspace_summary = 1;
+    profile->include_recent_file_reads = 1;
     profile->max_history_events = 16;
     profile->summarize_old_history = 1;
     copy_string(profile->autonomy, sizeof(profile->autonomy), "low");
@@ -667,6 +669,11 @@ void aegis_config_defaults(AegisConfig *cfg)
     );
     copy_string(cfg->model_source, sizeof(cfg->model_source), "config");
 
+    cfg->include_system_prompt = 1;
+    cfg->include_tool_schemas = 1;
+    cfg->include_workspace_summary = 1;
+    cfg->include_recent_observations = 1;
+    cfg->include_recent_file_reads = 1;
     cfg->max_history_events = 20;
     cfg->max_file_read_bytes = 65536;
     cfg->max_tool_output_bytes = 65536;
@@ -894,6 +901,12 @@ static AegisStatus parse_agent_profile(
         limits, "max_observation_chars", &parsed.max_observation_chars,
         1, 1, INT_MAX));
 
+    PROFILE_PARSE(parse_bool(
+        context, "include_workspace_summary",
+        &parsed.include_workspace_summary, 1));
+    PROFILE_PARSE(parse_bool(
+        context, "include_recent_file_reads",
+        &parsed.include_recent_file_reads, 1));
     PROFILE_PARSE(parse_int(
         context, "max_history_events", &parsed.max_history_events,
         1, 1, INT_MAX));
@@ -1306,6 +1319,21 @@ static AegisStatus parse_config(
         &parsed.allowed_profile_model_overrides,
         AEGIS_CONFIG_MAX_TOOLS, 1));
 
+    CONFIG_PARSE(parse_bool(
+        context, "include_system_prompt",
+        &parsed.include_system_prompt, 1));
+    CONFIG_PARSE(parse_bool(
+        context, "include_tool_schemas",
+        &parsed.include_tool_schemas, 1));
+    CONFIG_PARSE(parse_bool(
+        context, "include_workspace_summary",
+        &parsed.include_workspace_summary, 1));
+    CONFIG_PARSE(parse_bool(
+        context, "include_recent_observations",
+        &parsed.include_recent_observations, 1));
+    CONFIG_PARSE(parse_bool(
+        context, "include_recent_file_reads",
+        &parsed.include_recent_file_reads, 1));
     CONFIG_PARSE(parse_int(
         context, "max_history_events", &parsed.max_history_events,
         1, 1, INT_MAX));

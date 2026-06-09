@@ -18,13 +18,13 @@ typedef struct {
     char items[AEGIS_CONFIG_MAX_TOOLS][AEGIS_CONFIG_NAME_MAX];
 } AegisConfigStringList;
 
-typedef struct AegisAgentProfile {
+typedef struct {
     char tool[AEGIS_CONFIG_NAME_MAX];
     char decision[AEGIS_CONFIG_NAME_MAX];
     char risk[AEGIS_CONFIG_NAME_MAX];
 } AegisPolicyDecision;
 
-typedef struct {
+typedef struct AegisAgentProfile {
     char profile_path[AEGIS_CONFIG_PATH_MAX];
     char schema_version[AEGIS_CONFIG_NAME_MAX];
     char kind[AEGIS_CONFIG_NAME_MAX];
@@ -48,6 +48,8 @@ typedef struct {
     int max_tool_calls;
     int max_context_chars;
     int max_observation_chars;
+    int include_workspace_summary;
+    int include_recent_file_reads;
     int max_history_events;
     int summarize_old_history;
 
@@ -111,6 +113,11 @@ typedef struct AegisConfig {
     char model_source[AEGIS_CONFIG_NAME_MAX];
     AegisConfigStringList allowed_profile_model_overrides;
 
+    int include_system_prompt;
+    int include_tool_schemas;
+    int include_workspace_summary;
+    int include_recent_observations;
+    int include_recent_file_reads;
     int max_history_events;
     int max_file_read_bytes;
     int max_tool_output_bytes;
