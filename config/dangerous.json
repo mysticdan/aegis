@@ -4,19 +4,19 @@
   "app": {
     "name": "aegis",
     "display_name": "Aegis",
-    "mode": "balanced",
+    "mode": "dangerous",
     "default_profile": "coding_agent"
   },
   "runtime": {
-    "max_steps": 30,
-    "max_tool_calls": 80,
-    "max_wall_time_ms": 900000,
+    "max_steps": 60,
+    "max_tool_calls": 200,
+    "max_wall_time_ms": 1800000,
     "stop_on_tool_error": false,
     "stop_on_policy_denied": false,
     "retry": {
       "enabled": true,
-      "max_retries": 2,
-      "backoff_ms": 750
+      "max_retries": 3,
+      "backoff_ms": 500
     }
   },
   "provider": {
@@ -47,9 +47,9 @@
     "profiles": {
       "default": {
         "model": "moonshotai/kimi-k2.6:free",
-        "temperature": 0.1,
-        "top_p": 0.9,
-        "max_tokens": 4096,
+        "temperature": 0.15,
+        "top_p": 0.95,
+        "max_tokens": 8192,
         "stream": false,
         "provider_routing": {
           "allow_fallbacks": true,
@@ -116,9 +116,9 @@
     "include_workspace_summary": true,
     "include_recent_observations": true,
     "include_recent_file_reads": true,
-    "max_history_events": 20,
-    "max_file_read_bytes": 65536,
-    "max_tool_output_bytes": 65536,
+    "max_history_events": 40,
+    "max_file_read_bytes": 262144,
+    "max_tool_output_bytes": 262144,
     "summarize_old_history": true
   },
   "workspace": {
@@ -127,8 +127,8 @@
     "deny_absolute_paths": true,
     "deny_parent_traversal": true,
     "follow_symlinks": false,
-    "allow_hidden_files": false,
-    "max_file_bytes": 1048576,
+    "allow_hidden_files": true,
+    "max_file_bytes": 4194304,
     "blocked_paths": [
       ".git/objects",
       ".env",
@@ -166,25 +166,25 @@
     "defaults": {
       "require_policy_check": true,
       "require_trace": true,
-      "max_result_bytes": 65536
+      "max_result_bytes": 262144
     },
     "file": {
       "allow_read": true,
       "allow_write": true,
-      "write_requires_approval": true
+      "write_requires_approval": false
     },
     "http": {
       "enabled": false,
-      "timeout_ms": 30000,
-      "max_response_bytes": 1048576,
-      "allowed_schemes": ["https"],
+      "timeout_ms": 60000,
+      "max_response_bytes": 4194304,
+      "allowed_schemes": ["http", "https"],
       "allow_private_networks": false
     },
     "shell": {
       "enabled": false,
-      "requires_approval": true,
-      "timeout_ms": 10000,
-      "max_output_bytes": 65536,
+      "requires_approval": false,
+      "timeout_ms": 60000,
+      "max_output_bytes": 262144,
       "working_directory": "workspace",
       "env_policy": "whitelist",
       "allowed_env": [
@@ -195,7 +195,8 @@
         "CC",
         "CXX",
         "CFLAGS",
-        "CXXFLAGS"
+        "CXXFLAGS",
+        "MAKEFLAGS"
       ],
       "allowed_commands": [
         "ls",
@@ -205,9 +206,12 @@
         "make",
         "cmake",
         "ctest",
+        "ninja",
         "git status",
         "git diff",
-        "git log"
+        "git log",
+        "curl",
+        "wget"
       ],
       "blocked_commands": [
         "sudo",
@@ -231,14 +235,14 @@
     }
   },
   "policy": {
-    "mode": "balanced",
-    "approval_mode": "on_risky_action",
+    "mode": "dangerous",
+    "approval_mode": "on_critical_action",
     "default_decision": "deny_unknown",
     "decisions": {
       "list_dir": "allow",
       "read_file": "allow",
-      "write_file": "require_approval",
-      "append_file": "require_approval",
+      "write_file": "allow",
+      "append_file": "allow",
       "search_file": "deny",
       "shell": "deny",
       "run_tests": "deny",
@@ -285,10 +289,10 @@
     "chdir_to_workspace": true,
     "network": { "enabled": false },
     "limits": {
-      "cpu_time_seconds": 20,
-      "memory_bytes": 536870912,
-      "file_size_bytes": 10485760,
-      "process_count": 32
+      "cpu_time_seconds": 120,
+      "memory_bytes": 2147483648,
+      "file_size_bytes": 104857600,
+      "process_count": 128
     },
     "hardening": {
       "seccomp": false,
@@ -300,7 +304,7 @@
   "state": {
     "enabled": true,
     "driver": "sqlite",
-    "path": "state/aegis.db",
+    "path": "state/aegis-dangerous.db",
     "auto_migrate": true,
     "store_messages": true,
     "store_tool_calls": true,
@@ -310,7 +314,7 @@
   "trace": {
     "enabled": true,
     "driver": "jsonl",
-    "directory": "traces",
+    "directory": "traces/dangerous",
     "file_pattern": "{session_id}.jsonl",
     "flush_each_event": true,
     "include_llm_requests": true,
@@ -319,11 +323,11 @@
     "redact_secrets": true
   },
   "logging": {
-    "level": "info",
+    "level": "debug",
     "stderr": true,
     "file": {
       "enabled": true,
-      "path": "state/aegis.log"
+      "path": "state/aegis-dangerous.log"
     }
   },
   "redaction": {
@@ -343,7 +347,7 @@
     "cli": {
       "enabled": true,
       "default_user_id": "local",
-      "default_session_prefix": "cli"
+      "default_session_prefix": "dangerous"
     },
     "http": {
       "enabled": false,
@@ -369,6 +373,6 @@
     "suite_directory": "evals/suites",
     "workspace_directory": "evals/workspaces",
     "default_success_command": "make test",
-    "max_eval_steps": 30
+    "max_eval_steps": 60
   }
 }

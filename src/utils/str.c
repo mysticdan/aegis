@@ -1,3 +1,6 @@
+#include <stdlib.h>
+#include <string.h>
+
 #include "aegis/str.h"
 
 char *aegis_strdup(const char *s) {
@@ -30,4 +33,3 @@ size_t aegis_strlcpy(char *dst, const char *src, size_t dst_size) {
     dst[copy_len] = '\0';
     return src_len;
 }
-

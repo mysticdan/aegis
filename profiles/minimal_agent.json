@@ -1,0 +1,61 @@
+{
+  "schema_version": "0.1",
+  "kind": "agent_profile",
+  "id": "minimal_agent",
+  "identity": {
+    "name": "Aegis Minimal Agent",
+    "role": "read-only workspace analyst",
+    "description": "Inspects a workspace and answers focused questions with the smallest practical tool surface."
+  },
+  "prompt": {
+    "type": "file",
+    "path": "prompts/system_minimal_agent.md"
+  },
+  "protocol": {
+    "action_protocol": "json_action_v1",
+    "allowed_actions": ["final", "tool_call"],
+    "force_json_action": true,
+    "invalid_json_repair_attempts": 1
+  },
+  "model_overrides": {
+    "temperature": 0.0,
+    "top_p": 0.8,
+    "max_tokens": 1024
+  },
+  "limits": {
+    "max_steps": 8,
+    "max_tool_calls": 16,
+    "max_context_chars": 60000,
+    "max_observation_chars": 12000
+  },
+  "context": {
+    "include_workspace_summary": true,
+    "include_recent_file_reads": true,
+    "max_history_events": 10,
+    "summarize_old_history": true
+  },
+  "tools": {
+    "requested": [
+      "list_dir",
+      "read_file",
+      "search_file"
+    ]
+  },
+  "capabilities": {
+    "tags": ["analysis", "read_only", "low_risk"],
+    "autonomy": "low",
+    "can_modify_workspace": false,
+    "can_execute_commands": false,
+    "can_access_network": false,
+    "primary_tasks": [
+      "inspect files",
+      "summarize code",
+      "answer workspace questions"
+    ]
+  },
+  "guardrails": {
+    "config_policy_is_authoritative": true,
+    "request_only_needed_tools": true,
+    "avoid_side_effects": true
+  }
+}
