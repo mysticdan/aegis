@@ -11,7 +11,13 @@ typedef enum {
     AEGIS_ERR_POLICY_DENIED = 6,
     AEGIS_ERR_PATH_ESCAPE = 7,
     AEGIS_ERR_PARSE = 8,
-    AEGIS_ERR_RUNTIME = 9
+    AEGIS_ERR_RUNTIME = 9,
+    AEGIS_ERR_PROVIDER = 10,
+    AEGIS_ERR_TOOL = 11,
+    AEGIS_ERR_APPROVAL_REJECTED = 12,
+    AEGIS_ERR_MAX_STEPS = 13,
+    AEGIS_ERR_STATE = 14,
+    AEGIS_ERR_INTERRUPTED = 15
 } AegisStatus;
 
 const char *aegis_status_string(AegisStatus status);

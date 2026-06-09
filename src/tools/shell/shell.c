@@ -1,4 +1,5 @@
 #include "aegis/tool.h"
+#include "aegis/tool_process.h"
 
 static AegisStatus execute_shell(
     const AegisToolArgs *args,
@@ -6,10 +7,21 @@ static AegisStatus execute_shell(
     AegisToolResult *out
 )
 {
-    (void)args;
-    (void)context;
-    aegis_tool_result_set_error(out, "shell is not implemented");
-    return AEGIS_ERR_NOT_IMPLEMENTED;
+    const char *command;
+
+    if (!args || !context || !out) {
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    command = aegis_tool_args_get(args, "command");
+    if (!command || !command[0]) {
+        aegis_tool_result_set_error(out, "missing command");
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    if (!context->allow_shell) {
+        aegis_tool_result_set_error(out, "shell is disabled");
+        return AEGIS_ERR_POLICY_DENIED;
+    }
+    return aegis_tool_run_shell_command(context, command, out);
 }
 
 AegisTool aegis_tool_shell(void)
@@ -22,7 +34,7 @@ AegisTool aegis_tool_shell(void)
             "\"properties\":{\"command\":{\"type\":\"string\",\"minLength\":1}},"
             "\"additionalProperties\":false}",
         .risk_level = AEGIS_RISK_HIGH,
-        .availability = AEGIS_TOOL_STUB,
+        .availability = AEGIS_TOOL_READY,
         .execute = execute_shell
     };
 }

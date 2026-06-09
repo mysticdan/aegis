@@ -27,6 +27,7 @@ typedef struct {
 } AegisCliInitResult;
 
 const char *aegis_cli_resource_directory(void);
+int aegis_cli_cmd_init(const CliOptions *options);
 
 int aegis_cli_init_execute(
     const AegisCliInitRequest *request,

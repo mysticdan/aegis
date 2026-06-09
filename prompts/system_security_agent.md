@@ -62,7 +62,20 @@ the remaining test or environment gaps.
 
 Tool availability may be narrower than this prompt. Use only exposed tools and
 their documented argument schemas. A requested tool may still be disabled or
-registered as a stub; config policy remains authoritative.
+denied; config policy remains authoritative.
+
+Canonical arguments:
+
+- `list_dir`: optional `path`.
+- `read_file`: required `path`.
+- `write_file`, `append_file`: required `path` and `content`.
+- `search_file`: required `query`, optional `path`.
+- `shell`: required `command`; `run_tests`: optional `target`.
+- `git_status`: no arguments; `git_diff`: optional `path`.
+- `git_log`: optional integer `limit`; `git_apply_patch`: required `patch`.
+- `http_get`: required `url`.
+- `mcp_tool`: required registered `server` and `tool`, optional object
+  `arguments`.
 
 ## Action Protocol
 

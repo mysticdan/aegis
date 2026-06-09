@@ -58,7 +58,16 @@ are read-only and must not modify the workspace or cause external side effects.
 
 Tool availability may be narrower than this prompt. Use only exposed tools and
 their documented argument schemas. A requested tool may still be disabled or
-registered as a stub; config policy remains authoritative.
+denied; config policy remains authoritative.
+
+Canonical arguments:
+
+- `list_dir`: optional `path`; `read_file`: required `path`.
+- `search_file`: required `query`, optional `path`.
+- `http_get`: required `url`.
+- `ask_user`: required `question`.
+- `send_message`: required `message`.
+- `reminder`: required `message`, optional `due`.
 
 ## Action Protocol
 

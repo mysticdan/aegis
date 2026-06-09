@@ -29,7 +29,10 @@
     "max_observation_chars": 24000
   },
   "context": {
+    "include_system_prompt": true,
+    "include_tool_schemas": true,
     "include_workspace_summary": true,
+    "include_recent_observations": true,
     "include_recent_file_reads": true,
     "max_history_events": 28,
     "summarize_old_history": true

@@ -48,7 +48,10 @@ typedef struct AegisAgentProfile {
     int max_tool_calls;
     int max_context_chars;
     int max_observation_chars;
+    int include_system_prompt;
+    int include_tool_schemas;
     int include_workspace_summary;
+    int include_recent_observations;
     int include_recent_file_reads;
     int max_history_events;
     int summarize_old_history;
@@ -141,8 +144,16 @@ typedef struct AegisConfig {
     int shell_enabled;
     int shell_requires_approval;
     int shell_timeout_ms;
+    int shell_max_output_bytes;
+    char shell_env_policy[AEGIS_CONFIG_NAME_MAX];
+    AegisConfigStringList shell_allowed_env;
+    AegisConfigStringList shell_allowed_commands;
+    AegisConfigStringList shell_blocked_commands;
     int http_enabled;
     int http_timeout_ms;
+    int http_max_response_bytes;
+    int http_allow_private_networks;
+    AegisConfigStringList http_allowed_schemes;
 
     char approval_mode[AEGIS_CONFIG_NAME_MAX];
     char default_decision[AEGIS_CONFIG_NAME_MAX];
@@ -181,6 +192,10 @@ AegisStatus aegis_agent_profile_load_json(
     AegisAgentProfile *profile
 );
 AegisStatus aegis_config_load_json(const char *path, AegisConfig *cfg);
+AegisStatus aegis_config_select_provider(
+    AegisConfig *cfg,
+    const char *provider_name
+);
 
 /*
  * Load config/<preset>.json and its default profile. Passing NULL or an empty

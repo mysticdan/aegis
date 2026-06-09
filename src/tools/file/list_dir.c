@@ -48,6 +48,24 @@ static AegisStatus append_text(
     return AEGIS_OK;
 }
 
+static int compare_names(const void *left, const void *right)
+{
+    const char *const *left_name = left;
+    const char *const *right_name = right;
+
+    return strcmp(*left_name, *right_name);
+}
+
+static void free_names(char **names, size_t count)
+{
+    size_t index;
+
+    for (index = 0U; index < count; ++index) {
+        free(names[index]);
+    }
+    free(names);
+}
+
 static AegisStatus execute_list_dir(
     const AegisToolArgs *args,
     const AegisToolContext *context,
@@ -60,6 +78,9 @@ static AegisStatus execute_list_dir(
     struct dirent *entry;
     char entry_path[AEGIS_CONFIG_PATH_MAX];
     char visible_path[AEGIS_CONFIG_PATH_MAX];
+    char **names = NULL;
+    size_t name_count = 0U;
+    size_t name_capacity = 0U;
     char *buffer = NULL;
     size_t length = 0;
     size_t capacity = 0;
@@ -130,12 +151,40 @@ static AegisStatus execute_list_dir(
                 sizeof(visible_path)) != AEGIS_OK) {
             continue;
         }
+        if (name_count == name_capacity) {
+            size_t next = name_capacity ? name_capacity * 2U : 16U;
+            char **resized = realloc(names, next * sizeof(*names));
 
+            if (!resized) {
+                free_names(names, name_count);
+                closedir(directory);
+                return AEGIS_ERR_OOM;
+            }
+            names = resized;
+            name_capacity = next;
+        }
+        names[name_count] = malloc(strlen(entry->d_name) + 1U);
+        if (!names[name_count]) {
+            free_names(names, name_count);
+            closedir(directory);
+            return AEGIS_ERR_OOM;
+        }
+        memcpy(
+            names[name_count],
+            entry->d_name,
+            strlen(entry->d_name) + 1U
+        );
+        ++name_count;
+    }
+    closedir(directory);
+
+    qsort(names, name_count, sizeof(*names), compare_names);
+    for (size_t index = 0U; index < name_count; ++index) {
         status = append_text(
             &buffer,
             &length,
             &capacity,
-            entry->d_name,
+            names[index],
             context->max_output_bytes
         );
         if (status == AEGIS_OK) {
@@ -148,14 +197,13 @@ static AegisStatus execute_list_dir(
             );
         }
         if (status != AEGIS_OK) {
+            free_names(names, name_count);
             free(buffer);
-            closedir(directory);
             aegis_tool_result_set_error(out, "directory output exceeds limit");
             return status;
         }
     }
-    closedir(directory);
-
+    free_names(names, name_count);
     status = aegis_tool_result_set_stdout(out, buffer ? buffer : "");
     free(buffer);
     return status;

@@ -40,6 +40,12 @@ clear about uncertainty.
 Tool availability may be narrower than this prompt. A denied or unavailable
 tool is a hard boundary; do not retry it through another mechanism.
 
+Canonical arguments:
+
+- `list_dir`: optional `path`.
+- `read_file`: required `path`.
+- `search_file`: required `query`, optional `path`.
+
 ## Action Protocol
 
 Every response must be exactly one JSON object. Do not wrap it in Markdown and

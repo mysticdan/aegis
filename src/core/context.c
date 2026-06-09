@@ -454,7 +454,8 @@ static int event_is_included(
         case AEGIS_CONTEXT_EVENT_MESSAGE:
             return 1;
         case AEGIS_CONTEXT_EVENT_OBSERVATION:
-            return config->include_recent_observations;
+            return config->include_recent_observations &&
+                config->active_profile.include_recent_observations;
         case AEGIS_CONTEXT_EVENT_FILE_READ:
             return config->include_recent_file_reads &&
                 config->active_profile.include_recent_file_reads;
@@ -617,7 +618,8 @@ static AegisStatus append_effective_tools(
 {
     size_t index;
 
-    if (!config->include_tool_schemas) {
+    if (!config->include_tool_schemas ||
+        !config->active_profile.include_tool_schemas) {
         return AEGIS_OK;
     }
 
@@ -740,7 +742,8 @@ AegisStatus aegis_context_build(
         goto fail;
     }
 
-    if (config->include_system_prompt) {
+    if (config->include_system_prompt &&
+        config->active_profile.include_system_prompt) {
         status = load_system_prompt(config, maximum, &system_prompt);
         if (status != AEGIS_OK) {
             goto fail;

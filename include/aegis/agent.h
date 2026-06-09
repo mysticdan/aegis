@@ -5,6 +5,8 @@
 #include "aegis/message.h"
 #include "aegis/response.h"
 #include "aegis/config.h"
+#include "aegis/state.h"
+#include "aegis/trace.h"
 
 typedef struct {
     int step_count;
@@ -14,6 +16,8 @@ typedef struct {
 AegisStatus aegis_agent_run(
     const AegisConfig *cfg,
     const AegisMessage *msg,
+    AegisState *state,
+    AegisTrace *trace,
     AegisResponse *out
 );
 

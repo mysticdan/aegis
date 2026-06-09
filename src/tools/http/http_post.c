@@ -1,4 +1,5 @@
 #include "aegis/tool.h"
+#include "aegis/tool_http.h"
 
 static AegisStatus execute_http_post(
     const AegisToolArgs *args,
@@ -6,10 +7,19 @@ static AegisStatus execute_http_post(
     AegisToolResult *out
 )
 {
-    (void)args;
-    (void)context;
-    aegis_tool_result_set_error(out, "http_post is not implemented");
-    return AEGIS_ERR_NOT_IMPLEMENTED;
+    const char *url;
+    const char *body;
+
+    if (!args || !context || !out) {
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    url = aegis_tool_args_get(args, "url");
+    body = aegis_tool_args_get(args, "body");
+    if (!url) {
+        aegis_tool_result_set_error(out, "missing url");
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    return aegis_tool_http_request(context, "POST", url, body, out);
 }
 
 AegisTool aegis_tool_http_post(void)
@@ -23,7 +33,7 @@ AegisTool aegis_tool_http_post(void)
             "\"body\":{\"type\":\"string\"}},"
             "\"additionalProperties\":false}",
         .risk_level = AEGIS_RISK_CRITICAL,
-        .availability = AEGIS_TOOL_STUB,
+        .availability = AEGIS_TOOL_READY,
         .execute = execute_http_post
     };
 }

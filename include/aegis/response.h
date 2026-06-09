@@ -2,8 +2,12 @@
 #define AEGIS_RESPONSE_H
 
 typedef struct {
-    const char *text;
+    char *text;
     int exit_code;
+    char session_id[96];
+    char trace_path[4096];
+    char status[32];
+    int steps;
 } AegisResponse;
 
 void aegis_response_init(AegisResponse *response);

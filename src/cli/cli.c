@@ -2,6 +2,8 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <signal.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,53 +14,23 @@
 #include <cjson/cJSON.h>
 
 #include "aegis/cli.h"
-#include "aegis/command.h"
-#include "aegis/config.h"
-#include "aegis/error.h"
-#include "aegis/tool_registry.h"
+#include "aegis/cli_command.h"
+#include "aegis/cli_init.h"
 
-#include "cli_init.h"
+static volatile sig_atomic_t cli_interrupt_requested;
 
-#define AEGIS_CLI_TASK_MAX_BYTES (1024U * 1024U)
-#define AEGIS_CLI_TRACE_LINE_MAX_BYTES (1024U * 1024U)
-#define AEGIS_CLI_ERROR_MAX 512U
-#define AEGIS_CLI_MAX_POSITIONALS 4U
+static void cli_signal_handler(int signal_number)
+{
+    if (signal_number == SIGINT) {
+        cli_interrupt_requested = 1;
+    }
+}
 
-typedef struct {
-    AegisCommand command;
-    const char *config_path;
-    const char *mode;
-    const char *profile;
-    const char *workspace;
-    const char *task;
-    const char *task_file;
-    const char *trace;
-    const char *session;
-    const char *suite;
-    const char *positionals[AEGIS_CLI_MAX_POSITIONALS];
-    size_t positional_count;
-    int max_steps;
-    int has_max_steps;
-    int json;
-    int quiet;
-    int verbose;
-    int dry_run;
-    int force;
-    int no_color;
-    int help;
-} CliOptions;
-
-typedef struct {
-    AegisConfig config;
-    AegisToolRegistry registry;
-    char *workspace;
-} CliEnvironment;
-
-typedef struct {
-    const char *text;
-    char *owned;
-    size_t length;
-} CliTask;
+int cli_interrupted(void *userdata)
+{
+    (void)userdata;
+    return cli_interrupt_requested != 0;
+}
 
 static void cli_print_main_help(FILE *stream)
 {
@@ -70,11 +42,18 @@ static void cli_print_main_help(FILE *stream)
         "Commands:\n"
         "  init      Initialize Aegis in a workspace\n"
         "  run       Validate or run one task\n"
-        "  replay    Validate and replay a trace (backend pending)\n"
-        "  inspect   Validate and inspect a trace/session (backend pending)\n"
-        "  eval      Validate an evaluation suite (backend pending)\n"
+        "  chat      Start an interactive multi-turn session\n"
+        "  resume    Resume a stored session\n"
+        "  sessions  Manage stored sessions\n"
+        "  replay    Replay or compare trace events\n"
+        "  inspect   Analyze a trace or stored session\n"
+        "  eval      Run an evaluation suite\n"
         "  tools     Inspect the registered tool catalog\n"
         "  config    Validate the active configuration\n"
+        "  profiles  Manage agent profiles\n"
+        "  mcp       Manage MCP integrations\n"
+        "  doctor    Check installation health\n"
+        "  completion Generate shell completion\n"
         "  version   Show the Aegis version\n"
         "  help      Show help for a command\n"
         "\n"
@@ -187,8 +166,8 @@ static void cli_print_eval_help(FILE *stream)
         "Usage:\n"
         "  aegis eval --suite <path> [--json]\n"
         "\n"
-        "The suite is validated as JSON before the unavailable eval backend is\n"
-        "reported.\n"
+        "Runs each evaluation case in an isolated workspace when requested,\n"
+        "then reports pass/fail results and the aggregate score.\n"
     );
 }
 
@@ -209,6 +188,21 @@ static int cli_print_command_help(const char *command, FILE *stream)
         case AEGIS_CMD_RUN:
             cli_print_run_help(stream);
             return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_CHAT:
+            fprintf(stream, "Usage:\n  aegis chat [options]\n");
+            return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_RESUME:
+            fprintf(
+                stream,
+                "Usage:\n  aegis resume <session-id> [options]\n"
+            );
+            return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_SESSIONS:
+            fprintf(
+                stream,
+                "Usage:\n  aegis sessions list|show|delete|clean [options]\n"
+            );
+            return AEGIS_CLI_EXIT_SUCCESS;
         case AEGIS_CMD_REPLAY:
             cli_print_trace_help(stream, "replay");
             return AEGIS_CLI_EXIT_SUCCESS;
@@ -224,6 +218,27 @@ static int cli_print_command_help(const char *command, FILE *stream)
         case AEGIS_CMD_CONFIG:
             cli_print_config_help(stream);
             return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_PROFILES:
+            fprintf(
+                stream,
+                "Usage:\n  aegis profiles list|show|validate|new [options]\n"
+            );
+            return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_MCP:
+            fprintf(
+                stream,
+                "Usage:\n  aegis mcp list|add|remove|tools|call [options]\n"
+            );
+            return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_DOCTOR:
+            fprintf(stream, "Usage:\n  aegis doctor [options]\n");
+            return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_CMD_COMPLETION:
+            fprintf(
+                stream,
+                "Usage:\n  aegis completion bash|zsh|fish\n"
+            );
+            return AEGIS_CLI_EXIT_SUCCESS;
         case AEGIS_CMD_VERSION:
             fprintf(stream, "Usage:\n  aegis version [--verbose] [--json]\n");
             return AEGIS_CLI_EXIT_SUCCESS;
@@ -235,7 +250,7 @@ static int cli_print_command_help(const char *command, FILE *stream)
     }
 }
 
-static int cli_json_print(cJSON *root)
+int cli_json_print(cJSON *root)
 {
     char *rendered;
 
@@ -248,7 +263,7 @@ static int cli_json_print(cJSON *root)
     return 1;
 }
 
-static int cli_error(
+int cli_error(
     const CliOptions *options,
     int exit_code,
     const char *format,
@@ -329,9 +344,31 @@ static int cli_parse_positive_int(
     return 1;
 }
 
+static int cli_parse_positive_size(
+    const char *value,
+    size_t *result
+)
+{
+    char *end;
+    unsigned long long parsed;
+
+    if (!value || value[0] == '\0' || value[0] == '-') {
+        return 0;
+    }
+    errno = 0;
+    parsed = strtoull(value, &end, 10);
+    if (errno != 0 || *end != '\0' || parsed == 0U ||
+        parsed > (unsigned long long)SIZE_MAX) {
+        return 0;
+    }
+    *result = (size_t)parsed;
+    return 1;
+}
+
 static int cli_parse_options(
     int argc,
     char **argv,
+    int command_index,
     CliOptions *options,
     char *error,
     size_t error_size
@@ -340,9 +377,12 @@ static int cli_parse_options(
     int positional_only = 0;
     int index;
 
-    for (index = 2; index < argc; ++index) {
+    for (index = 1; index < argc; ++index) {
         const char *argument = argv[index];
 
+        if (index == command_index) {
+            continue;
+        }
         if (!positional_only && strcmp(argument, "--") == 0) {
             positional_only = 1;
             continue;
@@ -361,6 +401,18 @@ static int cli_parse_options(
             options->dry_run = 1;
         } else if (!positional_only && strcmp(argument, "--force") == 0) {
             options->force = 1;
+        } else if (!positional_only && strcmp(argument, "--yes") == 0) {
+            options->yes = 1;
+        } else if (!positional_only && strcmp(argument, "--no-input") == 0) {
+            options->no_input = 1;
+        } else if (!positional_only && strcmp(argument, "--fail-fast") == 0) {
+            options->fail_fast = 1;
+        } else if (!positional_only && strcmp(argument, "--keep-trace") == 0) {
+            options->keep_trace = 1;
+        } else if (!positional_only && strcmp(argument, "--tools") == 0) {
+            options->tools_only = 1;
+        } else if (!positional_only && strcmp(argument, "--policy") == 0) {
+            options->policy_only = 1;
         } else if (!positional_only && strcmp(argument, "--no-color") == 0) {
             options->no_color = 1;
         } else if (!positional_only && strcmp(argument, "--config") == 0) {
@@ -393,9 +445,41 @@ static int cli_parse_options(
                     error_size)) {
                 return 0;
             }
-        } else if (!positional_only && strcmp(argument, "--workspace") == 0) {
+        } else if (!positional_only &&
+                   (strcmp(argument, "--workspace") == 0 ||
+                    strcmp(argument, "--workspace-root") == 0)) {
             if (!cli_set_value(
                     &options->workspace,
+                    &index,
+                    argc,
+                    argv,
+                    error,
+                    error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--state-dir") == 0) {
+            if (!cli_set_value(
+                    &options->state_dir,
+                    &index,
+                    argc,
+                    argv,
+                    error,
+                    error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--provider") == 0) {
+            if (!cli_set_value(
+                    &options->provider,
+                    &index,
+                    argc,
+                    argv,
+                    error,
+                    error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--model") == 0) {
+            if (!cli_set_value(
+                    &options->model,
                     &index,
                     argc,
                     argv,
@@ -453,6 +537,70 @@ static int cli_parse_options(
                     error_size)) {
                 return 0;
             }
+        } else if (!positional_only && strcmp(argument, "--args") == 0) {
+            if (!cli_set_value(
+                    &options->args_json, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--against") == 0) {
+            if (!cli_set_value(
+                    &options->against, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--older-than") == 0) {
+            if (!cli_set_value(
+                    &options->older_than, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--cmd") == 0) {
+            if (!cli_set_value(
+                    &options->command_value, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--url") == 0) {
+            if (!cli_set_value(
+                    &options->url, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only && strcmp(argument, "--approval") == 0) {
+            if (!cli_set_value(
+                    &options->approval, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only &&
+                   strcmp(argument, "--replay-mode") == 0) {
+            if (!cli_set_value(
+                    &options->replay_mode, &index, argc, argv,
+                    error, error_size)) {
+                return 0;
+            }
+        } else if (!positional_only &&
+                   (strcmp(argument, "--step") == 0 ||
+                    strcmp(argument, "--from-step") == 0 ||
+                    strcmp(argument, "--to-step") == 0)) {
+            int value;
+
+            if (index + 1 >= argc ||
+                !cli_parse_positive_int(argv[++index], &value)) {
+                snprintf(error, error_size, "invalid step value");
+                return 0;
+            }
+            if (strcmp(argument, "--step") == 0) {
+                options->step = value;
+                options->has_step = 1;
+            } else if (strcmp(argument, "--from-step") == 0) {
+                options->from_step = value;
+                options->has_from_step = 1;
+            } else {
+                options->to_step = value;
+                options->has_to_step = 1;
+            }
         } else if (!positional_only && strcmp(argument, "--max-steps") == 0) {
             const char *value;
 
@@ -475,6 +623,39 @@ static int cli_parse_options(
                 return 0;
             }
             options->has_max_steps = 1;
+        } else if (!positional_only &&
+                   strcmp(argument, "--max-output-bytes") == 0) {
+            const char *value;
+
+            if (options->has_max_output_bytes) {
+                snprintf(
+                    error,
+                    error_size,
+                    "duplicate option: --max-output-bytes"
+                );
+                return 0;
+            }
+            if (index + 1 >= argc) {
+                snprintf(
+                    error,
+                    error_size,
+                    "missing value for --max-output-bytes"
+                );
+                return 0;
+            }
+            value = argv[++index];
+            if (!cli_parse_positive_size(
+                    value,
+                    &options->max_output_bytes)) {
+                snprintf(
+                    error,
+                    error_size,
+                    "invalid --max-output-bytes value: %s",
+                    value
+                );
+                return 0;
+            }
+            options->has_max_output_bytes = 1;
         } else if (!positional_only && argument[0] == '-') {
             if (strcmp(argument, "-") == 0) {
                 if (options->positional_count >=
@@ -507,7 +688,7 @@ static int cli_parse_options(
     return 1;
 }
 
-static const char *cli_profile_id(const char *profile)
+const char *cli_profile_id(const char *profile)
 {
     if (!profile) {
         return NULL;
@@ -538,7 +719,60 @@ static int cli_valid_mode(const char *mode)
          strcmp(mode, "dangerous") == 0);
 }
 
-static void cli_environment_clear(CliEnvironment *environment)
+static int cli_apply_approval_override(
+    AegisConfig *config,
+    const char *mode
+)
+{
+    size_t index;
+
+    if (!mode) {
+        return 1;
+    }
+    if (strcmp(mode, "never") != 0 &&
+        strcmp(mode, "on_write") != 0 &&
+        strcmp(mode, "on_shell") != 0 &&
+        strcmp(mode, "on_risky_action") != 0 &&
+        strcmp(mode, "always") != 0) {
+        return 0;
+    }
+    snprintf(
+        config->approval_mode,
+        sizeof(config->approval_mode),
+        "%s",
+        mode
+    );
+    for (index = 0U; index < config->policy_decision_count; ++index) {
+        AegisPolicyDecision *policy = &config->policy_decisions[index];
+        int require = 0;
+
+        if (strcmp(policy->decision, "allow") != 0) {
+            continue;
+        }
+        if (strcmp(mode, "always") == 0) {
+            require = 1;
+        } else if (strcmp(mode, "on_risky_action") == 0) {
+            require = strcmp(policy->risk, "low") != 0;
+        } else if (strcmp(mode, "on_write") == 0) {
+            require = strcmp(policy->tool, AEGIS_TOOL_WRITE_FILE) == 0 ||
+                strcmp(policy->tool, AEGIS_TOOL_APPEND_FILE) == 0 ||
+                strcmp(policy->tool, AEGIS_TOOL_GIT_APPLY_PATCH) == 0;
+        } else if (strcmp(mode, "on_shell") == 0) {
+            require = strcmp(policy->tool, AEGIS_TOOL_SHELL) == 0 ||
+                strcmp(policy->tool, AEGIS_TOOL_RUN_TESTS) == 0;
+        }
+        if (require) {
+            snprintf(
+                policy->decision,
+                sizeof(policy->decision),
+                "require_approval"
+            );
+        }
+    }
+    return 1;
+}
+
+void cli_environment_clear(CliEnvironment *environment)
 {
     if (!environment) {
         return;
@@ -547,7 +781,7 @@ static void cli_environment_clear(CliEnvironment *environment)
     memset(environment, 0, sizeof(*environment));
 }
 
-static int cli_resolve_workspace(
+int cli_resolve_workspace(
     const CliOptions *options,
     char **workspace,
     char *error,
@@ -579,13 +813,19 @@ static int cli_resolve_workspace(
     return 1;
 }
 
-static int cli_join_path(
+int cli_join_path(
     char *destination,
     size_t size,
     const char *left,
     const char *right
 )
 {
+    if (right[0] == '/') {
+        int written = snprintf(destination, size, "%s", right);
+
+        return written >= 0 && (size_t)written < size;
+    }
+
     size_t left_length = strlen(left);
     int written = snprintf(
         destination,
@@ -629,7 +869,7 @@ static int cli_local_config_available(
     return 1;
 }
 
-static int cli_load_environment(
+int cli_load_environment(
     const CliOptions *options,
     CliEnvironment *environment,
     char *error,
@@ -789,6 +1029,80 @@ static int cli_load_environment(
         }
         environment->config.max_steps = options->max_steps;
     }
+    if (options->provider) {
+        status = aegis_config_select_provider(
+            &environment->config,
+            options->provider
+        );
+        if (status != AEGIS_OK) {
+            snprintf(
+                error,
+                error_size,
+                "unknown or invalid provider: %s",
+                options->provider
+            );
+            return AEGIS_CLI_EXIT_CONFIG;
+        }
+    }
+    if (options->model) {
+        if (options->model[0] == '\0' ||
+            strlen(options->model) >= sizeof(environment->config.model)) {
+            snprintf(error, error_size, "invalid model override");
+            return AEGIS_CLI_EXIT_USAGE;
+        }
+        memcpy(
+            environment->config.model,
+            options->model,
+            strlen(options->model) + 1U
+        );
+    }
+    if (options->state_dir) {
+        int written;
+
+        if (options->state_dir[0] == '\0') {
+            snprintf(error, error_size, "invalid state directory override");
+            return AEGIS_CLI_EXIT_USAGE;
+        }
+        written = snprintf(
+            environment->config.state_path,
+            sizeof(environment->config.state_path),
+            "%s%sstate.db",
+            options->state_dir,
+            options->state_dir[strlen(options->state_dir) - 1U] == '/'
+                ? ""
+                : "/"
+        );
+        if (written < 0 ||
+            (size_t)written >= sizeof(environment->config.state_path)) {
+            snprintf(error, error_size, "state directory path is too long");
+            return AEGIS_CLI_EXIT_USAGE;
+        }
+    }
+    if (options->has_max_output_bytes) {
+        if (options->max_output_bytes >
+            (size_t)environment->config.max_tool_output_bytes) {
+            snprintf(
+                error,
+                error_size,
+                "--max-output-bytes cannot exceed configured limit %d",
+                environment->config.max_tool_output_bytes
+            );
+            return AEGIS_CLI_EXIT_USAGE;
+        }
+        environment->config.max_tool_output_bytes =
+            (int)options->max_output_bytes;
+    }
+    if (!cli_apply_approval_override(
+            &environment->config,
+            options->approval)) {
+        snprintf(
+            error,
+            error_size,
+            "invalid approval mode: %s",
+            options->approval
+        );
+        return AEGIS_CLI_EXIT_USAGE;
+    }
 
     return AEGIS_CLI_EXIT_SUCCESS;
 }
@@ -898,7 +1212,7 @@ static int cli_read_stream(
     return 1;
 }
 
-static int cli_load_task(
+int cli_load_task(
     const CliOptions *options,
     CliTask *task,
     char *error,
@@ -1011,147 +1325,7 @@ static int cli_load_task(
     return 1;
 }
 
-static int cli_cmd_init(const CliOptions *options)
-{
-    AegisCliInitRequest request;
-    AegisCliInitResult result;
-    const char *environment_workspace;
-    const char *profile_id;
-    char error[AEGIS_CLI_ERROR_MAX];
-    int exit_code;
-    size_t index;
-
-    if (options->positional_count != 0U ||
-        options->config_path ||
-        options->task ||
-        options->task_file ||
-        options->trace ||
-        options->session ||
-        options->suite ||
-        options->has_max_steps ||
-        options->dry_run) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "usage: aegis init [--workspace <path>] [--mode <mode>] "
-            "[--profile <name>] [--force]"
-        );
-    }
-    if (options->mode && !cli_valid_mode(options->mode)) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "invalid mode: %s",
-            options->mode
-        );
-    }
-
-    environment_workspace = getenv("AEGIS_WORKSPACE");
-    profile_id = cli_profile_id(options->profile);
-    memset(&request, 0, sizeof(request));
-    request.workspace = options->workspace
-        ? options->workspace
-        : (environment_workspace && environment_workspace[0] != '\0'
-            ? environment_workspace
-            : ".");
-    request.mode = options->mode;
-    request.profile_id = profile_id;
-    request.force = options->force;
-
-    exit_code = aegis_cli_init_execute(
-        &request,
-        &result,
-        error,
-        sizeof(error)
-    );
-    if (exit_code != AEGIS_CLI_EXIT_SUCCESS) {
-        return cli_error(options, exit_code, "%s", error);
-    }
-
-    if (options->json) {
-        cJSON *root = cJSON_CreateObject();
-        cJSON *created = cJSON_CreateArray();
-        cJSON *updated = cJSON_CreateArray();
-
-        if (!root || !created || !updated) {
-            cJSON_Delete(root);
-            cJSON_Delete(created);
-            cJSON_Delete(updated);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to allocate JSON output"
-            );
-        }
-        cJSON_AddStringToObject(
-            root,
-            "status",
-            result.already_initialized
-                ? "already_initialized"
-                : "initialized"
-        );
-        cJSON_AddStringToObject(root, "command", "init");
-        cJSON_AddStringToObject(root, "workspace", result.workspace);
-        cJSON_AddStringToObject(root, "root", result.root);
-        cJSON_AddStringToObject(root, "mode", result.mode);
-        cJSON_AddStringToObject(root, "profile", result.profile);
-        cJSON_AddItemToObject(root, "created", created);
-        cJSON_AddItemToObject(root, "updated", updated);
-        for (index = 0U; index < result.created_count; ++index) {
-            cJSON_AddItemToArray(
-                created,
-                cJSON_CreateString(result.created[index])
-            );
-        }
-        for (index = 0U; index < result.updated_count; ++index) {
-            cJSON_AddItemToArray(
-                updated,
-                cJSON_CreateString(result.updated[index])
-            );
-        }
-        if (!cli_json_print(root)) {
-            cJSON_Delete(root);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to render JSON output"
-            );
-        }
-        cJSON_Delete(root);
-    } else if (options->quiet) {
-        puts(
-            result.already_initialized
-                ? "Already initialized."
-                : "Initialized."
-        );
-    } else {
-        puts(
-            result.already_initialized
-                ? "Aegis workspace already initialized"
-                : "Initialized Aegis workspace"
-        );
-        printf("Workspace : %s\n", result.workspace);
-        printf("Root      : %s\n", result.root);
-        printf("Config    : %s/config/aegis.json\n", result.root);
-        printf("Mode      : %s\n", result.mode);
-        printf("Profile   : %s\n", result.profile);
-        if (!result.already_initialized) {
-            printf("Created   : %zu paths\n", result.created_count);
-            printf("Updated   : %zu paths\n", result.updated_count);
-        }
-        if (options->verbose) {
-            for (index = 0U; index < result.created_count; ++index) {
-                printf("  created %s\n", result.created[index]);
-            }
-            for (index = 0U; index < result.updated_count; ++index) {
-                printf("  updated %s\n", result.updated[index]);
-            }
-        }
-    }
-    return AEGIS_CLI_EXIT_SUCCESS;
-}
-
-static size_t cli_effective_tool_count(const CliEnvironment *environment)
+size_t cli_effective_tool_count(const CliEnvironment *environment)
 {
     size_t count = 0U;
     size_t index;
@@ -1169,12 +1343,12 @@ static size_t cli_effective_tool_count(const CliEnvironment *environment)
     return count;
 }
 
-static const char *cli_tool_availability(const AegisTool *tool)
+const char *cli_tool_availability(const AegisTool *tool)
 {
     return tool->availability == AEGIS_TOOL_READY ? "ready" : "stub";
 }
 
-static const char *cli_tool_state(
+const char *cli_tool_state(
     const AegisConfig *config,
     const AegisTool *tool
 )
@@ -1201,532 +1375,7 @@ static const char *cli_tool_state(
     return "enabled";
 }
 
-static int cli_cmd_tools(const CliOptions *options)
-{
-    CliEnvironment environment;
-    char error[AEGIS_CLI_ERROR_MAX];
-    size_t index;
-    int exit_code;
-
-    if (options->positional_count != 1U ||
-        strcmp(options->positionals[0], "list") != 0) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "usage: aegis tools list [options]"
-        );
-    }
-
-    exit_code = cli_load_environment(
-        options,
-        &environment,
-        error,
-        sizeof(error)
-    );
-    if (exit_code != AEGIS_CLI_EXIT_SUCCESS) {
-        cli_environment_clear(&environment);
-        return cli_error(options, exit_code, "%s", error);
-    }
-
-    if (options->json) {
-        cJSON *root = cJSON_CreateObject();
-        cJSON *tools = cJSON_CreateArray();
-
-        if (!root || !tools) {
-            cJSON_Delete(root);
-            cJSON_Delete(tools);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to allocate JSON output"
-            );
-        }
-        cJSON_AddStringToObject(root, "status", "success");
-        cJSON_AddStringToObject(root, "command", "tools");
-        cJSON_AddStringToObject(
-            root,
-            "config",
-            environment.config.config_path
-        );
-        cJSON_AddStringToObject(
-            root,
-            "profile",
-            environment.config.active_profile.id
-        );
-        cJSON_AddNumberToObject(
-            root,
-            "effective_count",
-            (double)cli_effective_tool_count(&environment)
-        );
-        cJSON_AddItemToObject(root, "tools", tools);
-
-        for (index = 0U; index < environment.registry.count; ++index) {
-            const AegisTool *tool = &environment.registry.tools[index];
-            const char *decision = aegis_config_tool_decision(
-                &environment.config,
-                tool->name
-            );
-            cJSON *entry = cJSON_CreateObject();
-
-            if (!entry) {
-                cJSON_Delete(root);
-                cli_environment_clear(&environment);
-                return cli_error(
-                    options,
-                    AEGIS_CLI_EXIT_GENERAL,
-                    "failed to allocate JSON output"
-                );
-            }
-            cJSON_AddStringToObject(entry, "name", tool->name);
-            cJSON_AddStringToObject(
-                entry,
-                "risk",
-                aegis_tool_risk_name(tool->risk_level)
-            );
-            cJSON_AddStringToObject(
-                entry,
-                "availability",
-                cli_tool_availability(tool)
-            );
-            cJSON_AddStringToObject(
-                entry,
-                "policy",
-                decision ? decision : "unknown"
-            );
-            cJSON_AddStringToObject(
-                entry,
-                "state",
-                cli_tool_state(&environment.config, tool)
-            );
-            cJSON_AddBoolToObject(
-                entry,
-                "effective",
-                tool->availability == AEGIS_TOOL_READY &&
-                    aegis_config_tool_is_effective(
-                        &environment.config,
-                        tool->name)
-            );
-            cJSON_AddStringToObject(
-                entry,
-                "description",
-                tool->description
-            );
-            cJSON_AddItemToArray(tools, entry);
-        }
-        if (!cli_json_print(root)) {
-            cJSON_Delete(root);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to render JSON output"
-            );
-        }
-        cJSON_Delete(root);
-    } else if (options->quiet) {
-        for (index = 0U; index < environment.registry.count; ++index) {
-            const AegisTool *tool = &environment.registry.tools[index];
-
-            if (tool->availability == AEGIS_TOOL_READY &&
-                aegis_config_tool_is_effective(
-                    &environment.config,
-                    tool->name)) {
-                puts(tool->name);
-            }
-        }
-    } else {
-        printf(
-            "%-18s %-9s %-12s %-17s %-14s %s\n",
-            "Tool",
-            "Risk",
-            "Availability",
-            "Policy",
-            "State",
-            "Description"
-        );
-        for (index = 0U; index < environment.registry.count; ++index) {
-            const AegisTool *tool = &environment.registry.tools[index];
-            const char *decision = aegis_config_tool_decision(
-                &environment.config,
-                tool->name
-            );
-
-            printf(
-                "%-18s %-9s %-12s %-17s %-14s %s\n",
-                tool->name,
-                aegis_tool_risk_name(tool->risk_level),
-                cli_tool_availability(tool),
-                decision ? decision : "unknown",
-                cli_tool_state(&environment.config, tool),
-                tool->description
-            );
-        }
-    }
-
-    cli_environment_clear(&environment);
-    return AEGIS_CLI_EXIT_SUCCESS;
-}
-
-static int cli_path_writable(
-    const char *workspace,
-    const char *path,
-    int path_is_directory
-)
-{
-    char resolved[AEGIS_CONFIG_PATH_MAX];
-    char copy[AEGIS_CONFIG_PATH_MAX];
-    char *separator;
-    struct stat metadata;
-    const char *selected = path;
-    const char *directory;
-    size_t length;
-
-    if (!path || path[0] == '\0') {
-        return 0;
-    }
-    if (path[0] != '/') {
-        if (!cli_join_path(
-                resolved,
-                sizeof(resolved),
-                workspace,
-                path)) {
-            return 0;
-        }
-        selected = resolved;
-    }
-    if (path_is_directory) {
-        return stat(selected, &metadata) == 0 &&
-            S_ISDIR(metadata.st_mode) &&
-            access(selected, W_OK) == 0;
-    }
-
-    length = strlen(selected);
-    if (length >= sizeof(copy)) {
-        return 0;
-    }
-    memcpy(copy, selected, length + 1U);
-    directory = copy;
-    separator = strrchr(copy, '/');
-    if (!separator) {
-        directory = ".";
-    } else if (separator == copy) {
-        separator[1] = '\0';
-        directory = copy;
-    } else {
-        *separator = '\0';
-        directory = copy;
-    }
-    return stat(directory, &metadata) == 0 &&
-        S_ISDIR(metadata.st_mode) &&
-        access(directory, W_OK) == 0;
-}
-
-static int cli_config_mode_known(const char *mode)
-{
-    return mode &&
-        (strcmp(mode, "balanced") == 0 ||
-         strcmp(mode, "safe") == 0 ||
-         strcmp(mode, "dev") == 0 ||
-         strcmp(mode, "dangerous") == 0);
-}
-
-static int cli_cmd_config(const CliOptions *options)
-{
-    CliEnvironment environment;
-    char error[AEGIS_CLI_ERROR_MAX];
-    const char *api_key;
-    int state_writable;
-    int trace_writable;
-    int exit_code;
-
-    if (options->positional_count != 1U ||
-        strcmp(options->positionals[0], "check") != 0) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "usage: aegis config check [options]"
-        );
-    }
-
-    exit_code = cli_load_environment(
-        options,
-        &environment,
-        error,
-        sizeof(error)
-    );
-    if (exit_code != AEGIS_CLI_EXIT_SUCCESS) {
-        cli_environment_clear(&environment);
-        return cli_error(options, exit_code, "%s", error);
-    }
-    if (strcmp(environment.config.provider, "openrouter") != 0) {
-        cli_environment_clear(&environment);
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_CONFIG,
-            "unsupported provider: %s",
-            environment.config.provider
-        );
-    }
-    if (environment.config.model[0] == '\0' ||
-        !cli_config_mode_known(environment.config.mode)) {
-        cli_environment_clear(&environment);
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_CONFIG,
-            "config contains an invalid model or mode"
-        );
-    }
-
-    api_key = getenv(environment.config.api_key_env);
-    state_writable = !environment.config.state_enabled ||
-        cli_path_writable(
-            environment.workspace,
-            environment.config.state_path,
-            0
-        );
-    trace_writable = !environment.config.trace_enabled ||
-        cli_path_writable(
-            environment.workspace,
-            environment.config.trace_directory,
-            1
-        );
-
-    if (options->json) {
-        cJSON *root = cJSON_CreateObject();
-        cJSON *checks = cJSON_CreateObject();
-        cJSON *warnings = cJSON_CreateArray();
-
-        if (!root || !checks || !warnings) {
-            cJSON_Delete(root);
-            cJSON_Delete(checks);
-            cJSON_Delete(warnings);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to allocate JSON output"
-            );
-        }
-        cJSON_AddStringToObject(root, "status", "success");
-        cJSON_AddStringToObject(root, "command", "config");
-        cJSON_AddStringToObject(
-            root,
-            "path",
-            environment.config.config_path
-        );
-        cJSON_AddStringToObject(
-            root,
-            "profile",
-            environment.config.active_profile.id
-        );
-        cJSON_AddItemToObject(root, "checks", checks);
-        cJSON_AddBoolToObject(checks, "json", 1);
-        cJSON_AddBoolToObject(checks, "provider", 1);
-        cJSON_AddBoolToObject(checks, "model", 1);
-        cJSON_AddBoolToObject(checks, "workspace", 1);
-        cJSON_AddBoolToObject(checks, "profile", 1);
-        cJSON_AddBoolToObject(checks, "policy", 1);
-        cJSON_AddBoolToObject(checks, "state_writable", state_writable);
-        cJSON_AddBoolToObject(checks, "trace_writable", trace_writable);
-        cJSON_AddItemToObject(root, "warnings", warnings);
-        if (!api_key || api_key[0] == '\0') {
-            char warning[AEGIS_CLI_ERROR_MAX];
-
-            snprintf(
-                warning,
-                sizeof(warning),
-                "API key environment is not set: %s",
-                environment.config.api_key_env
-            );
-            cJSON_AddItemToArray(warnings, cJSON_CreateString(warning));
-            fprintf(stderr, "warning: %s\n", warning);
-        }
-        if (!state_writable) {
-            cJSON_AddItemToArray(
-                warnings,
-                cJSON_CreateString("state directory is not currently writable")
-            );
-            fprintf(
-                stderr,
-                "warning: state directory is not currently writable\n"
-            );
-        }
-        if (!trace_writable) {
-            cJSON_AddItemToArray(
-                warnings,
-                cJSON_CreateString("trace directory is not currently writable")
-            );
-            fprintf(
-                stderr,
-                "warning: trace directory is not currently writable\n"
-            );
-        }
-        if (!cli_json_print(root)) {
-            cJSON_Delete(root);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to render JSON output"
-            );
-        }
-        cJSON_Delete(root);
-    } else if (options->quiet) {
-        puts("Config valid.");
-    } else {
-        puts("Config check");
-        printf("[OK] config: %s\n", environment.config.config_path);
-        puts("[OK] JSON schema and profile");
-        printf("[OK] provider: %s\n", environment.config.provider);
-        printf("[OK] model: %s\n", environment.config.model);
-        printf("[OK] workspace: %s\n", environment.workspace);
-        printf("[OK] profile: %s\n", environment.config.active_profile.id);
-        puts("[OK] tool registry and policy");
-        printf(
-            "[%s] state path: %s\n",
-            state_writable ? "OK" : "WARN",
-            environment.config.state_path
-        );
-        printf(
-            "[%s] trace directory: %s\n",
-            trace_writable ? "OK" : "WARN",
-            environment.config.trace_directory
-        );
-        if (!api_key || api_key[0] == '\0') {
-            printf(
-                "[WARN] API key environment is not set: %s\n",
-                environment.config.api_key_env
-            );
-        } else {
-            printf(
-                "[OK] API key environment: %s\n",
-                environment.config.api_key_env
-            );
-        }
-    }
-
-    cli_environment_clear(&environment);
-    return AEGIS_CLI_EXIT_SUCCESS;
-}
-
-static int cli_cmd_run(const CliOptions *options)
-{
-    CliEnvironment environment;
-    CliTask task;
-    char error[AEGIS_CLI_ERROR_MAX];
-    int exit_code;
-
-    if (!cli_load_task(options, &task, error, sizeof(error))) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "%s",
-            error
-        );
-    }
-
-    exit_code = cli_load_environment(
-        options,
-        &environment,
-        error,
-        sizeof(error)
-    );
-    if (exit_code != AEGIS_CLI_EXIT_SUCCESS) {
-        free(task.owned);
-        cli_environment_clear(&environment);
-        return cli_error(options, exit_code, "%s", error);
-    }
-
-    if (!options->dry_run) {
-        free(task.owned);
-        cli_environment_clear(&environment);
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_GENERAL,
-            "run backend is not implemented"
-        );
-    }
-
-    if (strcmp(environment.config.mode, "dangerous") == 0) {
-        fprintf(
-            stderr,
-            "warning: dangerous mode selected; dry-run executes no actions\n"
-        );
-    }
-
-    if (options->json) {
-        cJSON *root = cJSON_CreateObject();
-
-        if (!root) {
-            free(task.owned);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to allocate JSON output"
-            );
-        }
-        cJSON_AddStringToObject(root, "status", "dry_run");
-        cJSON_AddStringToObject(root, "command", "run");
-        cJSON_AddStringToObject(
-            root,
-            "config",
-            environment.config.config_path
-        );
-        cJSON_AddStringToObject(
-            root,
-            "profile",
-            environment.config.active_profile.id
-        );
-        cJSON_AddStringToObject(root, "mode", environment.config.mode);
-        cJSON_AddStringToObject(root, "workspace", environment.workspace);
-        cJSON_AddNumberToObject(root, "max_steps", environment.config.max_steps);
-        cJSON_AddNumberToObject(root, "task_bytes", (double)task.length);
-        cJSON_AddNumberToObject(
-            root,
-            "effective_tools",
-            (double)cli_effective_tool_count(&environment)
-        );
-        if (!cli_json_print(root)) {
-            cJSON_Delete(root);
-            free(task.owned);
-            cli_environment_clear(&environment);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to render JSON output"
-            );
-        }
-        cJSON_Delete(root);
-    } else if (options->quiet) {
-        puts("Dry run valid.");
-    } else {
-        puts("Aegis run dry-run");
-        printf("Config     : %s\n", environment.config.config_path);
-        printf("Workspace  : %s\n", environment.workspace);
-        printf("Profile    : %s\n", environment.config.active_profile.id);
-        printf("Mode       : %s\n", environment.config.mode);
-        printf("Max steps  : %d\n", environment.config.max_steps);
-        printf("Task bytes : %zu\n", task.length);
-        printf(
-            "Tools      : %zu effective\n",
-            cli_effective_tool_count(&environment)
-        );
-        if (options->verbose) {
-            printf("Provider   : %s\n", environment.config.provider);
-            printf("Model      : %s\n", environment.config.model);
-            printf("Task       : %s\n", task.text);
-        }
-        puts("No model or tool action was executed.");
-    }
-
-    free(task.owned);
-    cli_environment_clear(&environment);
-    return AEGIS_CLI_EXIT_SUCCESS;
-}
-
-static int cli_validate_trace(
+int cli_validate_trace(
     const char *path,
     char *error,
     size_t error_size
@@ -1788,95 +1437,7 @@ static int cli_validate_trace(
     return 1;
 }
 
-static int cli_cmd_replay(const CliOptions *options)
-{
-    const char *trace = options->trace;
-    char error[AEGIS_CLI_ERROR_MAX];
-
-    if (options->positional_count > 1U) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "replay accepts one trace path"
-        );
-    }
-    if (options->positional_count == 1U) {
-        if (trace) {
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_USAGE,
-                "use either --trace or a positional trace path, not both"
-            );
-        }
-        trace = options->positionals[0];
-    }
-    if (!trace) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "missing --trace"
-        );
-    }
-    if (!cli_validate_trace(trace, error, sizeof(error))) {
-        return cli_error(options, AEGIS_CLI_EXIT_TRACE, "%s", error);
-    }
-    return cli_error(
-        options,
-        AEGIS_CLI_EXIT_GENERAL,
-        "replay backend is not implemented"
-    );
-}
-
-static int cli_cmd_inspect(const CliOptions *options)
-{
-    const char *trace = options->trace;
-    char error[AEGIS_CLI_ERROR_MAX];
-    size_t source_count;
-
-    if (options->positional_count > 1U) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "inspect accepts one trace path"
-        );
-    }
-    if (options->positional_count == 1U) {
-        if (trace) {
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_USAGE,
-                "use either --trace or a positional trace path, not both"
-            );
-        }
-        trace = options->positionals[0];
-    }
-
-    source_count = (trace != NULL) + (options->session != NULL);
-    if (source_count == 0U) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "use either --trace or --session"
-        );
-    }
-    if (source_count > 1U) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "use either --trace or --session, not both"
-        );
-    }
-    if (trace && !cli_validate_trace(trace, error, sizeof(error))) {
-        return cli_error(options, AEGIS_CLI_EXIT_TRACE, "%s", error);
-    }
-    return cli_error(
-        options,
-        AEGIS_CLI_EXIT_GENERAL,
-        "inspect backend is not implemented"
-    );
-}
-
-static int cli_load_json_file(
+int cli_load_json_file(
     const char *path,
     char *error,
     size_t error_size
@@ -1923,92 +1484,56 @@ static int cli_load_json_file(
     return 1;
 }
 
-static int cli_cmd_eval(const CliOptions *options)
+int cli_status_exit_code(AegisStatus status)
 {
-    char error[AEGIS_CLI_ERROR_MAX];
+    switch (status) {
+        case AEGIS_OK: return AEGIS_CLI_EXIT_SUCCESS;
+        case AEGIS_ERR_PROVIDER: return AEGIS_CLI_EXIT_PROVIDER;
+        case AEGIS_ERR_TOOL: return AEGIS_CLI_EXIT_TOOL;
+        case AEGIS_ERR_POLICY_DENIED: return AEGIS_CLI_EXIT_POLICY;
+        case AEGIS_ERR_APPROVAL_REJECTED: return AEGIS_CLI_EXIT_APPROVAL;
+        case AEGIS_ERR_PATH_ESCAPE: return AEGIS_CLI_EXIT_WORKSPACE;
+        case AEGIS_ERR_MAX_STEPS: return AEGIS_CLI_EXIT_MAX_STEPS;
+        case AEGIS_ERR_STATE: return AEGIS_CLI_EXIT_STATE;
+        case AEGIS_ERR_INTERRUPTED: return AEGIS_CLI_EXIT_INTERRUPTED;
+        default: return AEGIS_CLI_EXIT_GENERAL;
+    }
+}
 
-    if (options->positional_count != 0U) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "eval does not accept positional arguments"
-        );
+int cli_confirm_agent_execution(
+    const CliOptions *options,
+    const AegisConfig *config,
+    int dry_run
+)
+{
+    char answer[32];
+
+    if (!config || strcmp(config->mode, "dangerous") != 0) {
+        return AEGIS_CLI_EXIT_SUCCESS;
     }
-    if (!options->suite) {
-        return cli_error(
-            options,
-            AEGIS_CLI_EXIT_USAGE,
-            "missing --suite"
-        );
-    }
-    if (!cli_load_json_file(options->suite, error, sizeof(error))) {
-        return cli_error(options, AEGIS_CLI_EXIT_EVAL, "%s", error);
-    }
-    return cli_error(
-        options,
-        AEGIS_CLI_EXIT_GENERAL,
-        "eval backend is not implemented"
+    fprintf(
+        stderr,
+        "warning: dangerous mode allows elevated tool capabilities\n"
     );
-}
-
-static const char *cli_platform(void)
-{
-#if defined(__linux__) && defined(__x86_64__)
-    return "linux-x86_64";
-#elif defined(__linux__) && defined(__aarch64__)
-    return "linux-aarch64";
-#elif defined(__APPLE__) && defined(__aarch64__)
-    return "macos-aarch64";
-#elif defined(__APPLE__) && defined(__x86_64__)
-    return "macos-x86_64";
-#else
-    return "unknown";
-#endif
-}
-
-static int cli_cmd_version(const CliOptions *options)
-{
-    if (options->positional_count != 0U) {
+    if (dry_run || options->yes) {
+        return AEGIS_CLI_EXIT_SUCCESS;
+    }
+    if (options->no_input || !isatty(STDIN_FILENO)) {
         return cli_error(
             options,
-            AEGIS_CLI_EXIT_USAGE,
-            "version does not accept positional arguments"
+            AEGIS_CLI_EXIT_APPROVAL,
+            "dangerous mode requires explicit confirmation"
         );
     }
-    if (options->json) {
-        cJSON *root = cJSON_CreateObject();
-
-        if (!root) {
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to allocate JSON output"
-            );
-        }
-        cJSON_AddStringToObject(root, "status", "success");
-        cJSON_AddStringToObject(root, "command", "version");
-        cJSON_AddStringToObject(root, "version", AEGIS_CLI_VERSION);
-        cJSON_AddStringToObject(root, "platform", cli_platform());
-        cJSON_AddStringToObject(
-            root,
-            "features",
-            "init,config,tools,json,dry-run"
+    fprintf(stderr, "Continue in dangerous mode? [y/N] ");
+    fflush(stderr);
+    if (!fgets(answer, sizeof(answer), stdin) ||
+        (answer[0] != 'y' && answer[0] != 'Y')) {
+        return cli_error(
+            options,
+            AEGIS_CLI_EXIT_APPROVAL,
+            "dangerous mode was not approved"
         );
-        if (!cli_json_print(root)) {
-            cJSON_Delete(root);
-            return cli_error(
-                options,
-                AEGIS_CLI_EXIT_GENERAL,
-                "failed to render JSON output"
-            );
-        }
-        cJSON_Delete(root);
-    } else {
-        printf("aegis %s\n", AEGIS_CLI_VERSION);
-        if (options->verbose) {
-            printf("platform: %s\n", cli_platform());
-            puts("features: init,config,tools,json,dry-run");
-        }
     }
     return AEGIS_CLI_EXIT_SUCCESS;
 }
@@ -2017,21 +1542,35 @@ static int cli_dispatch(const CliOptions *options)
 {
     switch (options->command) {
         case AEGIS_CMD_INIT:
-            return cli_cmd_init(options);
+            return aegis_cli_cmd_init(options);
         case AEGIS_CMD_RUN:
-            return cli_cmd_run(options);
+            return aegis_cli_cmd_run(options);
+        case AEGIS_CMD_CHAT:
+            return aegis_cli_cmd_chat(options);
+        case AEGIS_CMD_RESUME:
+            return aegis_cli_cmd_resume(options);
+        case AEGIS_CMD_SESSIONS:
+            return aegis_cli_cmd_sessions(options);
         case AEGIS_CMD_REPLAY:
-            return cli_cmd_replay(options);
+            return aegis_cli_cmd_replay(options);
         case AEGIS_CMD_INSPECT:
-            return cli_cmd_inspect(options);
+            return aegis_cli_cmd_inspect(options);
         case AEGIS_CMD_EVAL:
-            return cli_cmd_eval(options);
+            return aegis_cli_cmd_eval(options);
         case AEGIS_CMD_TOOLS:
-            return cli_cmd_tools(options);
+            return aegis_cli_cmd_tools(options);
         case AEGIS_CMD_CONFIG:
-            return cli_cmd_config(options);
+            return aegis_cli_cmd_config(options);
+        case AEGIS_CMD_PROFILES:
+            return aegis_cli_cmd_profiles(options);
+        case AEGIS_CMD_MCP:
+            return aegis_cli_cmd_mcp(options);
+        case AEGIS_CMD_DOCTOR:
+            return aegis_cli_cmd_doctor(options);
+        case AEGIS_CMD_COMPLETION:
+            return aegis_cli_cmd_completion(options);
         case AEGIS_CMD_VERSION:
-            return cli_cmd_version(options);
+            return aegis_cli_cmd_version(options);
         default:
             return cli_error(
                 options,
@@ -2041,12 +1580,94 @@ static int cli_dispatch(const CliOptions *options)
     }
 }
 
+static int cli_validate_option_scope(
+    const CliOptions *options,
+    char *error,
+    size_t error_size
+)
+{
+#define REQUIRE_COMMAND(condition, message) \
+    do { \
+        if (condition) { \
+            snprintf(error, error_size, "%s", message); \
+            return 0; \
+        } \
+    } while (0)
+    REQUIRE_COMMAND(
+        (options->task || options->task_file) &&
+            options->command != AEGIS_CMD_RUN,
+        "--task and --task-file are only valid with run"
+    );
+    REQUIRE_COMMAND(
+        options->suite && options->command != AEGIS_CMD_EVAL,
+        "--suite is only valid with eval"
+    );
+    REQUIRE_COMMAND(
+        options->args_json &&
+            options->command != AEGIS_CMD_TOOLS &&
+            options->command != AEGIS_CMD_MCP,
+        "--args is only valid with tools or mcp"
+    );
+    REQUIRE_COMMAND(
+        options->against && options->command != AEGIS_CMD_REPLAY,
+        "--against is only valid with replay"
+    );
+    REQUIRE_COMMAND(
+        options->older_than && options->command != AEGIS_CMD_SESSIONS,
+        "--older-than is only valid with sessions"
+    );
+    REQUIRE_COMMAND(
+        (options->command_value || options->url) &&
+            options->command != AEGIS_CMD_MCP,
+        "--cmd and --url are only valid with mcp"
+    );
+    REQUIRE_COMMAND(
+        (options->has_step || options->tools_only ||
+         options->policy_only) &&
+            options->command != AEGIS_CMD_INSPECT,
+        "--step, --tools, and --policy are only valid with inspect"
+    );
+    REQUIRE_COMMAND(
+        (options->has_from_step || options->has_to_step ||
+         options->replay_mode) &&
+            options->command != AEGIS_CMD_REPLAY,
+        "replay range and mode options are only valid with replay"
+    );
+    REQUIRE_COMMAND(
+        options->keep_trace && options->command != AEGIS_CMD_SESSIONS,
+        "--keep-trace is only valid with sessions"
+    );
+    REQUIRE_COMMAND(
+        options->fail_fast && options->command != AEGIS_CMD_EVAL,
+        "--fail-fast is only valid with eval"
+    );
+    REQUIRE_COMMAND(
+        options->force && options->command != AEGIS_CMD_INIT,
+        "--force is only valid with init"
+    );
+    REQUIRE_COMMAND(
+        options->dry_run &&
+            options->command != AEGIS_CMD_RUN &&
+            options->command != AEGIS_CMD_REPLAY,
+        "--dry-run is only valid with run or replay"
+    );
+#undef REQUIRE_COMMAND
+    return 1;
+}
+
 int aegis_cli_main(int argc, char **argv)
 {
+    struct sigaction interrupt_action;
     CliOptions options;
     char error[AEGIS_CLI_ERROR_MAX];
+    int command_index = -1;
     int index;
 
+    memset(&interrupt_action, 0, sizeof(interrupt_action));
+    interrupt_action.sa_handler = cli_signal_handler;
+    sigemptyset(&interrupt_action.sa_mask);
+    (void)sigaction(SIGINT, &interrupt_action, NULL);
+    cli_interrupt_requested = 0;
     memset(&options, 0, sizeof(options));
     for (index = 1; index < argc; ++index) {
         if (strcmp(argv[index], "--json") == 0) {
@@ -2058,42 +1679,91 @@ int aegis_cli_main(int argc, char **argv)
         cli_print_main_help(stderr);
         return AEGIS_CLI_EXIT_USAGE;
     }
-    if (strcmp(argv[1], "--help") == 0 ||
-        strcmp(argv[1], "-h") == 0) {
-        cli_print_main_help(stdout);
-        return AEGIS_CLI_EXIT_SUCCESS;
-    }
-    if (strcmp(argv[1], "--version") == 0 ||
-        strcmp(argv[1], "-v") == 0) {
-        options.command = AEGIS_CMD_VERSION;
-        if (!cli_parse_options(
-                argc,
-                argv,
-                &options,
-                error,
-                sizeof(error))) {
+
+    for (index = 1; index < argc; ++index) {
+        const char *argument = argv[index];
+        int takes_value =
+            strcmp(argument, "--config") == 0 ||
+            strcmp(argument, "--mode") == 0 ||
+            strcmp(argument, "--profile") == 0 ||
+            strcmp(argument, "--workspace") == 0 ||
+            strcmp(argument, "--workspace-root") == 0 ||
+            strcmp(argument, "--state-dir") == 0 ||
+            strcmp(argument, "--provider") == 0 ||
+            strcmp(argument, "--model") == 0 ||
+            strcmp(argument, "--session") == 0 ||
+            strcmp(argument, "--trace") == 0 ||
+            strcmp(argument, "--approval") == 0 ||
+            strcmp(argument, "--max-steps") == 0 ||
+            strcmp(argument, "--max-output-bytes") == 0;
+
+        if (strcmp(argument, "--help") == 0 ||
+            strcmp(argument, "-h") == 0) {
+            cli_print_main_help(stdout);
+            return AEGIS_CLI_EXIT_SUCCESS;
+        }
+        if (strcmp(argument, "--version") == 0 ||
+            strcmp(argument, "-v") == 0) {
+            options.command = AEGIS_CMD_VERSION;
+            command_index = index;
+            break;
+        }
+        if (takes_value) {
+            if (++index >= argc) {
+                return cli_error(
+                    &options,
+                    AEGIS_CLI_EXIT_USAGE,
+                    "missing value for %s",
+                    argument
+                );
+            }
+            continue;
+        }
+        if (argument[0] != '-') {
+            command_index = index;
+            break;
+        }
+        if (strcmp(argument, "--json") != 0 &&
+            strcmp(argument, "--quiet") != 0 &&
+            strcmp(argument, "--verbose") != 0 &&
+            strcmp(argument, "--no-color") != 0 &&
+            strcmp(argument, "--dry-run") != 0 &&
+            strcmp(argument, "--yes") != 0 &&
+            strcmp(argument, "--no-input") != 0) {
             return cli_error(
                 &options,
                 AEGIS_CLI_EXIT_USAGE,
-                "%s",
-                error
+                "unknown option before command: %s",
+                argument
             );
         }
-        return cli_cmd_version(&options);
+    }
+    if (command_index < 0) {
+        return cli_error(
+            &options,
+            AEGIS_CLI_EXIT_USAGE,
+            "missing command"
+        );
     }
 
-    options.command = aegis_command_from_string(argv[1]);
+    if (strcmp(argv[command_index], "--version") == 0 ||
+        strcmp(argv[command_index], "-v") == 0) {
+        options.command = AEGIS_CMD_VERSION;
+    } else {
+        options.command = aegis_command_from_string(argv[command_index]);
+    }
     if (options.command == AEGIS_CMD_UNKNOWN) {
         return cli_error(
             &options,
             AEGIS_CLI_EXIT_USAGE,
             "unknown command: %s",
-            argv[1]
+            argv[command_index]
         );
     }
     if (!cli_parse_options(
             argc,
             argv,
+            command_index,
             &options,
             error,
             sizeof(error))) {
@@ -2105,34 +1775,19 @@ int aegis_cli_main(int argc, char **argv)
         );
     }
 
-    if (options.command == AEGIS_CMD_HELP) {
-        if (options.positional_count > 1U) {
-            return cli_error(
-                &options,
-                AEGIS_CLI_EXIT_USAGE,
-                "help accepts at most one command"
-            );
-        }
-        if (cli_print_command_help(
-                options.positional_count == 1U
-                    ? options.positionals[0]
-                    : NULL,
-                stdout) != AEGIS_CLI_EXIT_SUCCESS) {
-            return cli_error(
-                &options,
-                AEGIS_CLI_EXIT_USAGE,
-                "unknown help command: %s",
-                options.positionals[0]
-            );
-        }
-        return AEGIS_CLI_EXIT_SUCCESS;
-    }
-    if (options.force && options.command != AEGIS_CMD_INIT) {
+    if (!cli_validate_option_scope(
+            &options,
+            error,
+            sizeof(error))) {
         return cli_error(
             &options,
             AEGIS_CLI_EXIT_USAGE,
-            "--force is only valid with init"
+            "%s",
+            error
         );
+    }
+    if (options.command == AEGIS_CMD_HELP) {
+        return aegis_cli_cmd_help(&options);
     }
     if (options.help) {
         return cli_print_command_help(

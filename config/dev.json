@@ -39,6 +39,41 @@
             "value": "Aegis-C"
           }
         }
+      },
+      "openai_compat": {
+        "base_url": "https://api.openai.com/v1",
+        "chat_completions_path": "/chat/completions",
+        "api_key_env": "OPENAI_API_KEY",
+        "timeout_ms": 120000,
+        "connect_timeout_ms": 10000
+      },
+      "ollama": {
+        "base_url": "http://127.0.0.1:11434",
+        "chat_completions_path": "/api/chat",
+        "api_key_env": "",
+        "timeout_ms": 120000,
+        "connect_timeout_ms": 5000
+      },
+      "anthropic": {
+        "base_url": "https://api.anthropic.com",
+        "chat_completions_path": "/v1/messages",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "timeout_ms": 120000,
+        "connect_timeout_ms": 10000
+      },
+      "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com",
+        "chat_completions_path": "/v1beta/models/{model}:generateContent",
+        "api_key_env": "GEMINI_API_KEY",
+        "timeout_ms": 120000,
+        "connect_timeout_ms": 10000
+      },
+      "mock": {
+        "base_url": "http://127.0.0.1",
+        "chat_completions_path": "/mock",
+        "api_key_env": "AEGIS_MOCK_KEY",
+        "timeout_ms": 1000,
+        "connect_timeout_ms": 1000
       }
     }
   },
@@ -143,16 +178,16 @@
       "list_dir",
       "read_file",
       "write_file",
-      "append_file"
-    ],
-    "disabled": [
+      "append_file",
       "search_file",
       "shell",
       "run_tests",
       "git_status",
       "git_diff",
       "git_log",
-      "git_apply_patch",
+      "git_apply_patch"
+    ],
+    "disabled": [
       "http_get",
       "http_post",
       "ask_user",
@@ -174,14 +209,14 @@
       "write_requires_approval": false
     },
     "http": {
-      "enabled": false,
+      "enabled": true,
       "timeout_ms": 30000,
       "max_response_bytes": 1048576,
       "allowed_schemes": ["https"],
       "allow_private_networks": false
     },
     "shell": {
-      "enabled": false,
+      "enabled": true,
       "requires_approval": true,
       "timeout_ms": 30000,
       "max_output_bytes": 131072,
@@ -241,13 +276,13 @@
       "read_file": "allow",
       "write_file": "allow",
       "append_file": "allow",
-      "search_file": "deny",
-      "shell": "deny",
-      "run_tests": "deny",
-      "git_status": "deny",
-      "git_diff": "deny",
-      "git_log": "deny",
-      "git_apply_patch": "deny",
+      "search_file": "allow",
+      "shell": "require_approval",
+      "run_tests": "allow",
+      "git_status": "allow",
+      "git_diff": "allow",
+      "git_log": "allow",
+      "git_apply_patch": "allow",
       "http_get": "deny",
       "http_post": "deny",
       "ask_user": "deny",

@@ -71,7 +71,7 @@ static void test_catalog(AegisToolRegistry *registry)
             ++ready_count;
         }
     }
-    assert(ready_count == 4);
+    assert(ready_count == AEGIS_TOOL_COUNT);
     assert(aegis_tool_registry_register(
         registry,
         aegis_tool_read_file()
@@ -156,13 +156,26 @@ static void test_policy(AegisToolRegistry *registry, const char *workspace)
     ) == AEGIS_OK);
 
     reset_result(&result);
+    arguments = args_one(items, "command", "ls");
+    config.sandbox_enabled = 0;
+    aegis_tool_context_from_config(&context, &config, workspace, 1);
     assert(aegis_tool_registry_execute(
         registry,
         AEGIS_TOOL_SHELL,
-        NULL,
+        &arguments,
         &context,
         &result
-    ) == AEGIS_ERR_NOT_IMPLEMENTED);
+    ) == AEGIS_OK);
+
+    reset_result(&result);
+    arguments = args_one(items, "command", "ls; pwd");
+    assert(aegis_tool_registry_execute(
+        registry,
+        AEGIS_TOOL_SHELL,
+        &arguments,
+        &context,
+        &result
+    ) == AEGIS_ERR_POLICY_DENIED);
 
     reset_result(&result);
     assert(aegis_config_load_preset("safe", &config) == AEGIS_OK);
@@ -221,6 +234,17 @@ static void test_file_tools(AegisToolRegistry *registry, const char *workspace)
     assert(strcmp(result.stdout_data, "hello world") == 0);
 
     reset_result(&result);
+    arguments = args_two(items, "query", "world", "path", ".");
+    assert(aegis_tool_registry_execute(
+        registry,
+        AEGIS_TOOL_SEARCH_FILE,
+        &arguments,
+        &context,
+        &result
+    ) == AEGIS_OK);
+    assert(strstr(result.stdout_data, "note.txt:1:hello world") != NULL);
+
+    reset_result(&result);
     snprintf(path, sizeof(path), "%s/.env", workspace);
     write_fixture(path, "secret");
     arguments = args_one(items, "path", ".");
@@ -233,6 +257,9 @@ static void test_file_tools(AegisToolRegistry *registry, const char *workspace)
     ) == AEGIS_OK);
     assert(strstr(result.stdout_data, "note.txt\n") != NULL);
     assert(strstr(result.stdout_data, ".env") == NULL);
+    assert(strstr(
+        result.stdout_data, "approval.txt\nnote.txt\n"
+    ) != NULL);
 
     reset_result(&result);
     arguments = args_one(items, "path", ".env");
@@ -288,6 +315,17 @@ static void test_file_tools(AegisToolRegistry *registry, const char *workspace)
         &context,
         &result
     ) == AEGIS_ERR_PATH_ESCAPE);
+
+    reset_result(&result);
+    arguments = args_two(items, "query", "world", "path", ".");
+    assert(aegis_tool_registry_execute(
+        registry,
+        AEGIS_TOOL_SEARCH_FILE,
+        &arguments,
+        &context,
+        &result
+    ) == AEGIS_OK);
+    assert(strstr(result.stdout_data, "note.txt:1:hello world") != NULL);
 
     config.allow_hidden_files = 1;
     context.max_output_bytes = 4;

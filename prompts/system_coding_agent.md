@@ -63,7 +63,20 @@ verification instead of stopping after analysis.
 
 Tool availability may be narrower than this prompt. Request only tools exposed
 by the runtime and use their documented schemas exactly. A requested tool may
-still be disabled or registered as a stub; config policy remains authoritative.
+still be disabled or denied; config policy remains authoritative.
+
+Canonical arguments:
+
+- `list_dir`: optional `path`.
+- `read_file`: required `path`.
+- `write_file`, `append_file`: required `path` and `content`.
+- `search_file`: required `query`, optional `path`.
+- `shell`: required `command`.
+- `run_tests`: optional `target`.
+- `git_status`: no arguments.
+- `git_diff`: optional `path`.
+- `git_log`: optional integer `limit`.
+- `git_apply_patch`: required `patch`.
 
 ## Action Protocol
 

@@ -1,4 +1,5 @@
 #include "aegis/tool.h"
+#include "aegis/tool_http.h"
 
 static AegisStatus execute_health_check(
     const AegisToolArgs *args,
@@ -6,10 +7,17 @@ static AegisStatus execute_health_check(
     AegisToolResult *out
 )
 {
-    (void)args;
-    (void)context;
-    aegis_tool_result_set_error(out, "health_check is not implemented");
-    return AEGIS_ERR_NOT_IMPLEMENTED;
+    const char *url;
+
+    if (!args || !context || !out) {
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    url = aegis_tool_args_get(args, "url");
+    if (!url) {
+        aegis_tool_result_set_error(out, "missing url");
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    return aegis_tool_http_request(context, "GET", url, NULL, out);
 }
 
 AegisTool aegis_tool_health_check(void)
@@ -22,7 +30,7 @@ AegisTool aegis_tool_health_check(void)
             "\"properties\":{\"url\":{\"type\":\"string\",\"format\":\"uri\"}},"
             "\"additionalProperties\":false}",
         .risk_level = AEGIS_RISK_MEDIUM,
-        .availability = AEGIS_TOOL_STUB,
+        .availability = AEGIS_TOOL_READY,
         .execute = execute_health_check
     };
 }

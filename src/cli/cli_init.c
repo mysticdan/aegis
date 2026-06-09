@@ -11,10 +11,11 @@
 #include <cjson/cJSON.h>
 
 #include "aegis/cli.h"
+#include "aegis/cli_command.h"
 #include "aegis/config.h"
 #include "aegis/tool_registry.h"
 
-#include "cli_init.h"
+#include "aegis/cli_init.h"
 
 #ifndef AEGIS_DEFAULT_RESOURCE_DIR
 #define AEGIS_DEFAULT_RESOURCE_DIR "."
@@ -59,6 +60,14 @@ static const char *const prompt_names[] = {
     "system_ops_agent.md",
     "system_assistant_agent.md"
 };
+
+static int init_valid_mode(const char *mode)
+{
+    return mode &&
+        (strcmp(mode, "safe") == 0 ||
+         strcmp(mode, "dev") == 0 ||
+         strcmp(mode, "dangerous") == 0);
+}
 
 static int copy_text(char *destination, size_t size, const char *source)
 {
@@ -986,5 +995,145 @@ int aegis_cli_init_execute(
         return AEGIS_CLI_EXIT_CONFIG;
     }
     free(workspace);
+    return AEGIS_CLI_EXIT_SUCCESS;
+}
+
+int aegis_cli_cmd_init(const CliOptions *options)
+{
+    AegisCliInitRequest request;
+    AegisCliInitResult result;
+    const char *environment_workspace;
+    const char *profile_id;
+    char error[AEGIS_CLI_ERROR_MAX];
+    int exit_code;
+    size_t index;
+
+    if (options->positional_count != 0U ||
+        options->config_path ||
+        options->task ||
+        options->task_file ||
+        options->trace ||
+        options->session ||
+        options->suite ||
+        options->has_max_steps ||
+        options->dry_run) {
+        return cli_error(
+            options,
+            AEGIS_CLI_EXIT_USAGE,
+            "usage: aegis init [--workspace <path>] [--mode <mode>] "
+            "[--profile <name>] [--force]"
+        );
+    }
+    if (options->mode && !init_valid_mode(options->mode)) {
+        return cli_error(
+            options,
+            AEGIS_CLI_EXIT_USAGE,
+            "invalid mode: %s",
+            options->mode
+        );
+    }
+
+    environment_workspace = getenv("AEGIS_WORKSPACE");
+    profile_id = cli_profile_id(options->profile);
+    memset(&request, 0, sizeof(request));
+    request.workspace = options->workspace
+        ? options->workspace
+        : (environment_workspace && environment_workspace[0] != '\0'
+            ? environment_workspace
+            : ".");
+    request.mode = options->mode;
+    request.profile_id = profile_id;
+    request.force = options->force;
+
+    exit_code = aegis_cli_init_execute(
+        &request,
+        &result,
+        error,
+        sizeof(error)
+    );
+    if (exit_code != AEGIS_CLI_EXIT_SUCCESS) {
+        return cli_error(options, exit_code, "%s", error);
+    }
+
+    if (options->json) {
+        cJSON *root = cJSON_CreateObject();
+        cJSON *created = cJSON_CreateArray();
+        cJSON *updated = cJSON_CreateArray();
+
+        if (!root || !created || !updated) {
+            cJSON_Delete(root);
+            cJSON_Delete(created);
+            cJSON_Delete(updated);
+            return cli_error(
+                options,
+                AEGIS_CLI_EXIT_GENERAL,
+                "failed to allocate JSON output"
+            );
+        }
+        cJSON_AddStringToObject(
+            root,
+            "status",
+            result.already_initialized
+                ? "already_initialized"
+                : "initialized"
+        );
+        cJSON_AddStringToObject(root, "command", "init");
+        cJSON_AddStringToObject(root, "workspace", result.workspace);
+        cJSON_AddStringToObject(root, "root", result.root);
+        cJSON_AddStringToObject(root, "mode", result.mode);
+        cJSON_AddStringToObject(root, "profile", result.profile);
+        cJSON_AddItemToObject(root, "created", created);
+        cJSON_AddItemToObject(root, "updated", updated);
+        for (index = 0U; index < result.created_count; ++index) {
+            cJSON_AddItemToArray(
+                created,
+                cJSON_CreateString(result.created[index])
+            );
+        }
+        for (index = 0U; index < result.updated_count; ++index) {
+            cJSON_AddItemToArray(
+                updated,
+                cJSON_CreateString(result.updated[index])
+            );
+        }
+        if (!cli_json_print(root)) {
+            cJSON_Delete(root);
+            return cli_error(
+                options,
+                AEGIS_CLI_EXIT_GENERAL,
+                "failed to render JSON output"
+            );
+        }
+        cJSON_Delete(root);
+    } else if (options->quiet) {
+        puts(
+            result.already_initialized
+                ? "Already initialized."
+                : "Initialized."
+        );
+    } else {
+        puts(
+            result.already_initialized
+                ? "Aegis workspace already initialized"
+                : "Initialized Aegis workspace"
+        );
+        printf("Workspace : %s\n", result.workspace);
+        printf("Root      : %s\n", result.root);
+        printf("Config    : %s/config/aegis.json\n", result.root);
+        printf("Mode      : %s\n", result.mode);
+        printf("Profile   : %s\n", result.profile);
+        if (!result.already_initialized) {
+            printf("Created   : %zu paths\n", result.created_count);
+            printf("Updated   : %zu paths\n", result.updated_count);
+        }
+        if (options->verbose) {
+            for (index = 0U; index < result.created_count; ++index) {
+                printf("  created %s\n", result.created[index]);
+            }
+            for (index = 0U; index < result.updated_count; ++index) {
+                printf("  updated %s\n", result.updated[index]);
+            }
+        }
+    }
     return AEGIS_CLI_EXIT_SUCCESS;
 }

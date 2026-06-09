@@ -87,7 +87,14 @@ static void test_full_context(const AegisToolRegistry *registry)
         AEGIS_TOOL_LIST_DIR,
         AEGIS_TOOL_READ_FILE,
         AEGIS_TOOL_WRITE_FILE,
-        AEGIS_TOOL_APPEND_FILE
+        AEGIS_TOOL_APPEND_FILE,
+        AEGIS_TOOL_SEARCH_FILE,
+        AEGIS_TOOL_SHELL,
+        AEGIS_TOOL_RUN_TESTS,
+        AEGIS_TOOL_GIT_STATUS,
+        AEGIS_TOOL_GIT_DIFF,
+        AEGIS_TOOL_GIT_LOG,
+        AEGIS_TOOL_GIT_APPLY_PATCH
     };
     size_t index;
 
@@ -203,6 +210,22 @@ static void test_config_and_profile_filtering(
     ) == AEGIS_OK);
     assert(context.message_count == 1U);
     assert(strcmp(context.messages[0].content, "now") == 0);
+    aegis_context_clear(&context);
+
+    config.include_recent_observations = 1;
+    config.include_system_prompt = 1;
+    config.include_tool_schemas = 1;
+    config.active_profile.include_system_prompt = 0;
+    config.active_profile.include_tool_schemas = 0;
+    config.active_profile.include_recent_observations = 0;
+    assert(aegis_context_build(
+        &context,
+        &config,
+        registry,
+        &input
+    ) == AEGIS_OK);
+    assert(context.tool_count == 0U);
+    assert(find_message(&context, AEGIS_CONTEXT_EVENT_OBSERVATION) == NULL);
     aegis_context_clear(&context);
 }
 

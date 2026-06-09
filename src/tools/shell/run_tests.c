@@ -1,4 +1,5 @@
 #include "aegis/tool.h"
+#include "aegis/tool_process.h"
 
 static AegisStatus execute_run_tests(
     const AegisToolArgs *args,
@@ -6,10 +7,15 @@ static AegisStatus execute_run_tests(
     AegisToolResult *out
 )
 {
-    (void)args;
-    (void)context;
-    aegis_tool_result_set_error(out, "run_tests is not implemented");
-    return AEGIS_ERR_NOT_IMPLEMENTED;
+    const char *target = args ? aegis_tool_args_get(args, "target") : NULL;
+    const char *command = target && target[0]
+        ? target
+        : "ctest --test-dir build --output-on-failure";
+
+    if (!context || !out) {
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    return aegis_tool_run_shell_command(context, command, out);
 }
 
 AegisTool aegis_tool_run_tests(void)
@@ -22,7 +28,7 @@ AegisTool aegis_tool_run_tests(void)
             "\"target\":{\"type\":\"string\"}},"
             "\"additionalProperties\":false}",
         .risk_level = AEGIS_RISK_MEDIUM,
-        .availability = AEGIS_TOOL_STUB,
+        .availability = AEGIS_TOOL_READY,
         .execute = execute_run_tests
     };
 }

@@ -5,6 +5,7 @@
 
 #include "aegis/config.h"
 #include "aegis/error.h"
+#include "aegis/message.h"
 
 #define AEGIS_TOOL_COUNT 20
 
@@ -28,6 +29,14 @@
 #define AEGIS_TOOL_GREP_LOG "grep_log"
 #define AEGIS_TOOL_HEALTH_CHECK "health_check"
 #define AEGIS_TOOL_MCP "mcp_tool"
+
+typedef AegisStatus (*AegisPersistReminderFn)(
+    void *userdata,
+    const char *session_id,
+    const char *message,
+    const char *due
+);
+typedef int (*AegisToolCancelledFn)(void *userdata);
 
 typedef enum {
     AEGIS_RISK_LOW = 0,
@@ -61,6 +70,13 @@ typedef struct {
     int allow_shell;
     int allow_network;
     size_t max_output_bytes;
+    AegisAskUserFn ask_user;
+    AegisSendMessageFn send_message;
+    void *adapter_userdata;
+    AegisPersistReminderFn persist_reminder;
+    AegisToolCancelledFn is_cancelled;
+    void *state_userdata;
+    const char *session_id;
 } AegisToolContext;
 
 typedef struct {

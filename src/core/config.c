@@ -568,6 +568,9 @@ void aegis_agent_profile_defaults(AegisAgentProfile *profile)
     profile->max_context_chars = 80000;
     profile->max_observation_chars = 16000;
     profile->include_workspace_summary = 1;
+    profile->include_system_prompt = 1;
+    profile->include_tool_schemas = 1;
+    profile->include_recent_observations = 1;
     profile->include_recent_file_reads = 1;
     profile->max_history_events = 16;
     profile->summarize_old_history = 1;
@@ -720,7 +723,16 @@ void aegis_config_defaults(AegisConfig *cfg)
     cfg->allow_file_write = 1;
     cfg->write_requires_approval = 1;
     cfg->shell_timeout_ms = 10000;
+    cfg->shell_max_output_bytes = 65536;
+    copy_string(
+        cfg->shell_env_policy,
+        sizeof(cfg->shell_env_policy),
+        "whitelist"
+    );
     cfg->http_timeout_ms = 30000;
+    cfg->http_max_response_bytes = 1048576;
+    cfg->http_allow_private_networks = 0;
+    default_list_add(&cfg->http_allowed_schemes, "https");
 
     copy_string(
         cfg->approval_mode,
@@ -902,8 +914,17 @@ static AegisStatus parse_agent_profile(
         1, 1, INT_MAX));
 
     PROFILE_PARSE(parse_bool(
+        context, "include_system_prompt",
+        &parsed.include_system_prompt, 1));
+    PROFILE_PARSE(parse_bool(
+        context, "include_tool_schemas",
+        &parsed.include_tool_schemas, 1));
+    PROFILE_PARSE(parse_bool(
         context, "include_workspace_summary",
         &parsed.include_workspace_summary, 1));
+    PROFILE_PARSE(parse_bool(
+        context, "include_recent_observations",
+        &parsed.include_recent_observations, 1));
     PROFILE_PARSE(parse_bool(
         context, "include_recent_file_reads",
         &parsed.include_recent_file_reads, 1));
@@ -1393,6 +1414,15 @@ static AegisStatus parse_config(
     CONFIG_PARSE(parse_int(
         http_tools, "timeout_ms", &parsed.http_timeout_ms,
         1, 1, INT_MAX));
+    CONFIG_PARSE(parse_int(
+        http_tools, "max_response_bytes", &parsed.http_max_response_bytes,
+        1, 1, INT_MAX));
+    CONFIG_PARSE(parse_string_list(
+        http_tools, "allowed_schemes", &parsed.http_allowed_schemes,
+        AEGIS_CONFIG_MAX_TOOLS, 1));
+    CONFIG_PARSE(parse_bool(
+        http_tools, "allow_private_networks",
+        &parsed.http_allow_private_networks, 1));
     CONFIG_PARSE(parse_bool(
         shell_tools, "enabled", &parsed.shell_enabled, 1));
     CONFIG_PARSE(parse_bool(
@@ -1401,6 +1431,21 @@ static AegisStatus parse_config(
     CONFIG_PARSE(parse_int(
         shell_tools, "timeout_ms", &parsed.shell_timeout_ms,
         1, 1, INT_MAX));
+    CONFIG_PARSE(parse_int(
+        shell_tools, "max_output_bytes", &parsed.shell_max_output_bytes,
+        1, 1, INT_MAX));
+    CONFIG_PARSE(parse_string(
+        shell_tools, "env_policy", parsed.shell_env_policy,
+        sizeof(parsed.shell_env_policy), 1));
+    CONFIG_PARSE(parse_string_list(
+        shell_tools, "allowed_env", &parsed.shell_allowed_env,
+        AEGIS_CONFIG_MAX_TOOLS, 1));
+    CONFIG_PARSE(parse_string_list(
+        shell_tools, "allowed_commands", &parsed.shell_allowed_commands,
+        AEGIS_CONFIG_MAX_TOOLS, 1));
+    CONFIG_PARSE(parse_string_list(
+        shell_tools, "blocked_commands", &parsed.shell_blocked_commands,
+        AEGIS_CONFIG_MAX_TOOLS, 1));
     parsed.allow_shell = parsed.shell_enabled;
 
     CONFIG_PARSE(parse_policy(policy, &parsed));
@@ -1457,6 +1502,97 @@ static AegisStatus parse_config(
     return AEGIS_OK;
 
 #undef CONFIG_PARSE
+}
+
+AegisStatus aegis_config_select_provider(
+    AegisConfig *cfg,
+    const char *provider_name
+)
+{
+    AegisConfig updated;
+    AegisStatus status;
+    cJSON *root;
+    cJSON *provider_root;
+    cJSON *providers;
+    cJSON *provider;
+
+    if (!cfg || !valid_identifier(provider_name) || !cfg->config_path[0]) {
+        return AEGIS_ERR_INVALID_ARGUMENT;
+    }
+    status = load_json_root(cfg->config_path, &root);
+    if (status != AEGIS_OK) {
+        return status;
+    }
+    provider_root = required_object(root, "provider");
+    providers = provider_root
+        ? required_object(provider_root, "providers")
+        : NULL;
+    provider = providers
+        ? cJSON_GetObjectItemCaseSensitive(providers, provider_name)
+        : NULL;
+    if (!cJSON_IsObject(provider)) {
+        cJSON_Delete(root);
+        return AEGIS_ERR_NOT_FOUND;
+    }
+
+    updated = *cfg;
+    status = parse_string(
+        provider,
+        "base_url",
+        updated.provider_base_url,
+        sizeof(updated.provider_base_url),
+        1
+    );
+    if (status == AEGIS_OK) {
+        status = parse_string(
+            provider,
+            "chat_completions_path",
+            updated.chat_completions_path,
+            sizeof(updated.chat_completions_path),
+            1
+        );
+    }
+    if (status == AEGIS_OK) {
+        status = parse_string(
+            provider,
+            "api_key_env",
+            updated.api_key_env,
+            sizeof(updated.api_key_env),
+            1
+        );
+    }
+    if (status == AEGIS_OK) {
+        status = parse_int(
+            provider,
+            "timeout_ms",
+            &updated.provider_timeout_ms,
+            1,
+            1,
+            INT_MAX
+        );
+    }
+    if (status == AEGIS_OK) {
+        status = parse_int(
+            provider,
+            "connect_timeout_ms",
+            &updated.provider_connect_timeout_ms,
+            1,
+            1,
+            INT_MAX
+        );
+    }
+    if (status == AEGIS_OK &&
+        !copy_string(
+            updated.provider,
+            sizeof(updated.provider),
+            provider_name)) {
+        status = AEGIS_ERR_PARSE;
+    }
+    cJSON_Delete(root);
+    if (status == AEGIS_OK) {
+        *cfg = updated;
+    }
+    return status;
 }
 
 AegisStatus aegis_config_load_json(const char *path, AegisConfig *cfg)

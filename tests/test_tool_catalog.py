@@ -28,7 +28,7 @@ CATALOG = {
     "health_check",
     "mcp_tool",
 }
-READY = {"list_dir", "read_file", "write_file", "append_file"}
+READY = CATALOG
 RISKS = {
     "list_dir": "low",
     "read_file": "low",
@@ -100,8 +100,16 @@ for path in sorted((ROOT / "config").glob("*.json")):
 assert set(load(ROOT / "config/safe.json")["tools"]["enabled"]) == {
     "list_dir", "read_file"
 }
-for preset in ("aegis", "dev", "dangerous"):
-    assert set(load(ROOT / f"config/{preset}.json")["tools"]["enabled"]) == READY
+CODING_TOOLS = {
+    "list_dir", "read_file", "write_file", "append_file", "search_file",
+    "shell", "run_tests", "git_status", "git_diff", "git_log",
+    "git_apply_patch",
+}
+for preset in ("aegis", "dev"):
+    assert set(load(ROOT / f"config/{preset}.json")["tools"]["enabled"]) == (
+        CODING_TOOLS
+    )
+assert set(load(ROOT / "config/dangerous.json")["tools"]["enabled"]) == CATALOG
 
 for profile_id, expected in PROFILE_TOOLS.items():
     profile_path = ROOT / f"profiles/{profile_id}.json"
@@ -114,4 +122,23 @@ for profile_id, expected in PROFILE_TOOLS.items():
 
 assert '"command"' in (ROOT / "prompts/system_ops_agent.md").read_text()
 assert '"url"' in (ROOT / "prompts/system_assistant_agent.md").read_text()
+
+for path in sorted((ROOT / "config").glob("*.json")):
+    config = load(path)
+    providers = config["provider"]["providers"]
+    assert set(providers) == {
+        "openrouter", "openai_compat", "ollama",
+        "anthropic", "gemini", "mock",
+    }
+    encoded = path.read_text(encoding="utf-8")
+    assert not re.search(
+        r'"(?:api_key|token|secret)"\s*:\s*"[^"]+"',
+        encoded,
+        re.IGNORECASE,
+    )
+
+for source in (ROOT / "src/tools").rglob("*.c"):
+    text = source.read_text(encoding="utf-8")
+    if ".availability" in text:
+        assert "AEGIS_TOOL_STUB" not in text, source
 print("aegis tool catalog sync: ok")
