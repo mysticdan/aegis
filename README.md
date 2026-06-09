@@ -380,5 +380,6 @@ docs/            Design and developer documentation
 - The sandbox is not a kernel-level security boundary.
 - Trace redaction is useful but cannot guarantee removal of every secret.
 
+
 These limitations are intentional documentation boundaries. They should not
 be hidden behind optimistic wording.

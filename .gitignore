@@ -1,8 +1,8 @@
-.env*
-traces*/
-state*/
-build*/
-*/__pycache__/
-*/*.pyc
-.understand-anything/
-.codegraph/
+.env
+traces
+state
+build*
+__pycache__
+*.pyc
+.understand-anything
+.codegraph
