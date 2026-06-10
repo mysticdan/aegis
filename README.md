@@ -124,6 +124,7 @@ To uninstall:
 ./scripts/build.sh --debug          # Debug build
 ./scripts/build.sh --sanitize       # Debug with ASan/UBSan
 ./scripts/build.sh --uninstall      # Remove installation
+./scripts/build.sh --help           # Show all options
 ```
 
 ### Manual CMake
@@ -157,6 +158,16 @@ The binary uses that directory as its built-in resource bundle.
 | `AEGIS_ENABLE_SANITIZERS` | `OFF` | Enable AddressSanitizer and UBSan |
 | `AEGIS_ENABLE_HARDENING` | `ON` | Enable binary hardening flags |
 
+When `AEGIS_ENABLE_HARDENING` is on, the following flags are applied:
+
+```text
+Compile: -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fstack-clash-protection
+         -fPIE -fno-plt -fno-strict-overflow -fno-delete-null-pointer-checks
+         -ftrivial-auto-var-init=zero (GCC 12+ / Clang 16+)
+Link:    -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack
+         -Wl,-z,separate-code -Wl,-z,text -Wl,--gc-sections -Wl,--as-needed
+```
+
 Example with options:
 
 ```bash
@@ -185,7 +196,10 @@ ctest --test-dir build-sanitize --output-on-failure
 ```
 
 The CMake targets compile with strict warnings, including `-Wall`, `-Wextra`,
-`-Wpedantic`, and `-Werror` on GCC and Clang.
+`-Wpedantic`, `-Wconversion`, `-Wshadow`, `-Wstrict-prototypes`,
+`-Wmissing-prototypes`, `-Wundef`, `-Wcast-align`, `-Wwrite-strings`,
+`-Wformat=2`, `-Werror=implicit-function-declaration`, and
+`-Werror=format-security` on GCC and Clang.
 
 ## Quick Start
 
@@ -297,7 +311,7 @@ aegis run --mode dangerous --yes --task "Perform the approved task"
 | Mode | Default profile | Effective intent |
 |---|---|---|
 | `safe` | `minimal_agent` | Read-only `list_dir` and `read_file` |
-| default `aegis` | `coding_agent` | Coding tools with approval for mutation and shell |
+| default (no `--mode`) | `coding_agent` | Coding tools with approval for mutation and shell |
 | `dev` | `coding_agent` | Workspace mutation allowed, shell still requires approval |
 | `dangerous` | `coding_agent` | All tools enabled; critical actions still require approval |
 
@@ -400,13 +414,14 @@ src/cli/         CLI parser and one implementation file per command
 src/core/        Runtime, agent, context, state, trace, and shared core logic
 src/providers/   Provider-specific request and response adapters
 src/tools/       Tool implementations and shared execution controls
+src/utils/       Shared utility functions (string helpers)
 config/          Built-in config presets
 profiles/        Built-in agent profiles
 prompts/         Built-in system prompts
 tests/           C and Python unit/integration tests
 docs/            Design and developer documentation
 cmake/           CMake modules (compiler flags, dependencies, hardening)
-scripts/         Build, test, and install helper scripts
+scripts/         Build, install, and uninstall helper scripts
 ```
 
 ## Documentation

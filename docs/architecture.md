@@ -59,12 +59,13 @@ src/main.c
 | `src/core/` | Runtime orchestration, agent loop, context, state, trace, sessions, and shared core behavior |
 | `src/providers/` | Provider selection plus provider-specific request/response conversion |
 | `src/tools/` | The 20 native tools and common path, process, HTTP, Git, and MCP helpers |
+| `src/utils/` | Shared utility functions (string helpers) |
 | `config/` | Built-in config presets copied into the runtime resource bundle |
 | `profiles/` | Built-in agent profiles |
 | `prompts/` | System prompts referenced by profiles |
 | `tests/` | C unit tests and Python integration/synchronization tests |
 | `cmake/` | CMake modules for compiler flags, dependencies, and hardening |
-| `scripts/` | Build, test, and install helper scripts |
+| `scripts/` | Build, install, and uninstall helper scripts |
 
 ## 4. Build-Time Components
 
@@ -98,7 +99,12 @@ cmake/dependencies.cmake
   External dependency discovery (cJSON, libcurl, SQLite3, optional seccomp)
 
 cmake/hardening.cmake
-  Binary security hardening (stack protector, FORTIFY_SOURCE, PIE, RELRO)
+  Binary security hardening: -D_FORTIFY_SOURCE=3, -fstack-protector-strong,
+  -fstack-clash-protection, -fPIE, -fno-plt, -fno-strict-overflow,
+  -fno-delete-null-pointer-checks, -ftrivial-auto-var-init=zero (GCC 12+/
+  Clang 16+), and linker flags -Wl,-z,relro, -Wl,-z,now,
+  -Wl,-z,noexecstack, -Wl,-z,separate-code, -Wl,-z,text,
+  -Wl,--gc-sections, -Wl,--as-needed
 ```
 
 The root `CMakeLists.txt` includes these modules and applies them to each
