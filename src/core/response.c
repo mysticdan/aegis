@@ -11,6 +11,7 @@ void aegis_response_init(AegisResponse *response) {
 void aegis_response_free(AegisResponse *response) {
     if (!response) return;
     free(response->text);
+    free(response->error_message);
     memset(response, 0, sizeof(*response));
 }
 

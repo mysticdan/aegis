@@ -823,11 +823,28 @@ static AegisStatus generate_http(
     }
     if (response->http_status < 200 || response->http_status >= 300) {
         cJSON *error = cJSON_GetObjectItemCaseSensitive(parsed, "error");
-        cJSON *message = cJSON_IsObject(error)
-            ? cJSON_GetObjectItemCaseSensitive(error, "message")
-            : NULL;
-        response->error_message = aegis_strdup(
-            cJSON_IsString(message) ? message->valuestring : "provider error");
+        char *detail = NULL;
+        if (cJSON_IsObject(error)) {
+            cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
+            cJSON *code = cJSON_GetObjectItemCaseSensitive(error, "code");
+            cJSON *type = cJSON_GetObjectItemCaseSensitive(error, "type");
+            if (cJSON_IsString(message) && message->valuestring &&
+                strcmp(message->valuestring, "Provider returned error") == 0) {
+                if (cJSON_IsString(code)) {
+                    detail = aegis_strdup(code->valuestring);
+                } else if (cJSON_IsString(type)) {
+                    detail = aegis_strdup(type->valuestring);
+                } else {
+                    char buf[64];
+                    snprintf(buf, sizeof(buf), "Provider returned error (HTTP %ld)",
+                             response->http_status);
+                    detail = aegis_strdup(buf);
+                }
+            } else if (cJSON_IsString(message)) {
+                detail = aegis_strdup(message->valuestring);
+            }
+        }
+        response->error_message = detail ? detail : aegis_strdup("provider error");
         cJSON_Delete(parsed);
         return AEGIS_ERR_RUNTIME;
     }
@@ -839,6 +856,17 @@ static AegisStatus generate_http(
         status = parse_gemini_response(parsed, response);
     } else {
         status = parse_openai_response(parsed, response);
+    }
+    if (status == AEGIS_OK && !response->content) {
+        cJSON *error = cJSON_GetObjectItemCaseSensitive(parsed, "error");
+        if (cJSON_IsObject(error)) {
+            cJSON *message = cJSON_GetObjectItemCaseSensitive(error, "message");
+            if (cJSON_IsString(message)) {
+                response->error_message = aegis_strdup(message->valuestring);
+                cJSON_Delete(parsed);
+                return AEGIS_ERR_RUNTIME;
+            }
+        }
     }
     cJSON_Delete(parsed);
     return status;

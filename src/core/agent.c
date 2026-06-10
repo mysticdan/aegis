@@ -470,6 +470,9 @@ AegisStatus aegis_agent_run(
                 state, trace, message->session_id, step, "model_error",
                 payload ? payload : "{}");
             cJSON_free(payload);
+            response->error_message = aegis_strdup(llm.error_message
+                ? llm.error_message
+                : aegis_status_string(status));
             aegis_llm_response_free(&llm);
             aegis_context_clear(&context);
             clear_events(owned_history, history_count);

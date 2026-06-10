@@ -3,6 +3,7 @@
 
 typedef struct {
     char *text;
+    char *error_message;
     int exit_code;
     char session_id[96];
     char trace_path[4096];

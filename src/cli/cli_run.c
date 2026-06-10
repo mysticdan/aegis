@@ -7,6 +7,7 @@
 #include <cjson/cJSON.h>
 
 #include "aegis/cli_command.h"
+#include "aegis/error.h"
 #include "aegis/message.h"
 #include "aegis/response.h"
 #include "aegis/runtime.h"
@@ -157,8 +158,15 @@ int aegis_cli_cmd_run(const CliOptions *options)
                 printf("Trace: %s\n", response.trace_path);
             }
         } else {
-            exit_code = cli_error(
-                options, exit_code, "%s", aegis_status_string(status));
+            if (status == AEGIS_ERR_PROVIDER && response.error_message &&
+                response.error_message[0] != '\0') {
+                exit_code = cli_error(
+                    options, exit_code, "%s: %s",
+                    aegis_status_string(status), response.error_message);
+            } else {
+                exit_code = cli_error(
+                    options, exit_code, "%s", aegis_status_string(status));
+            }
         }
         aegis_response_free(&response);
         free(task.owned);
