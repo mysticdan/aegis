@@ -1,6 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,39 +16,71 @@
 #include "aegis/trace.h"
 #include "aegis/trace_reader.h"
 
+#define ASSERT_OK(expr) do { \
+    AegisStatus _s = (expr); \
+    if (_s != AEGIS_OK) { \
+        fprintf(stderr, "FAIL:%d: %s == %d\n", __LINE__, #expr, _s); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_ERR(expr, expected) do { \
+    AegisStatus _s = (expr); \
+    if (_s != (expected)) { \
+        fprintf(stderr, "FAIL:%d: %s == %d (expected %d)\n", \
+                __LINE__, #expr, _s, (int)(expected)); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_NOT_NULL(expr) do { \
+    void *_p = (void *)(expr); \
+    if (!_p) { \
+        fprintf(stderr, "FAIL:%d: %s is NULL\n", __LINE__, #expr); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_TRUE(expr) do { \
+    if (!(expr)) { \
+        fprintf(stderr, "FAIL:%d: %s\n", __LINE__, #expr); \
+        abort(); \
+    } \
+} while (0)
+
 static void test_action_parser(void)
 {
     AegisAction action;
 
     aegis_action_init(&action);
-    assert(aegis_action_parse(
+    ASSERT_OK(aegis_action_parse(
         "{\"type\":\"final\",\"message\":\"done\"}",
         &action
-    ) == AEGIS_OK);
-    assert(action.type == AEGIS_ACTION_FINAL);
-    assert(strcmp(action.message, "done") == 0);
+    ));
+    ASSERT_TRUE(action.type == AEGIS_ACTION_FINAL);
+    ASSERT_TRUE(strcmp(action.message, "done") == 0);
 
-    assert(aegis_action_parse(
+    ASSERT_OK(aegis_action_parse(
         "{\"type\":\"tool_call\",\"tool\":\"read_file\","
         "\"arguments\":{\"path\":\"README.md\"}}",
         &action
-    ) == AEGIS_OK);
-    assert(action.type == AEGIS_ACTION_TOOL_CALL);
-    assert(strcmp(action.tool, "read_file") == 0);
-    assert(cJSON_IsObject(action.arguments));
+    ));
+    ASSERT_TRUE(action.type == AEGIS_ACTION_TOOL_CALL);
+    ASSERT_TRUE(strcmp(action.tool, "read_file") == 0);
+    ASSERT_TRUE(cJSON_IsObject(action.arguments));
 
-    assert(aegis_action_parse(
+    ASSERT_ERR(aegis_action_parse(
         "{\"type\":\"final\",\"message\":\"done\",\"extra\":true}",
         &action
-    ) == AEGIS_ERR_PARSE);
-    assert(aegis_action_parse(
+    ), AEGIS_ERR_PARSE);
+    ASSERT_ERR(aegis_action_parse(
         "{\"type\":\"tool_call\",\"tool\":\"\",\"arguments\":{}}",
         &action
-    ) == AEGIS_ERR_PARSE);
-    assert(aegis_action_parse(
+    ), AEGIS_ERR_PARSE);
+    ASSERT_ERR(aegis_action_parse(
         "{\"type\":\"final\",\"message\":\"done\"} trailing",
         &action
-    ) == AEGIS_ERR_PARSE);
+    ), AEGIS_ERR_PARSE);
     aegis_action_clear(&action);
 }
 
@@ -63,13 +94,13 @@ static void test_state(const char *directory)
     size_t count = 0U;
     char *events = NULL;
 
-    assert(snprintf(
+    ASSERT_TRUE(snprintf(
         path, sizeof(path), "%s/state.db", directory
     ) > 0);
     memset(&state, 0, sizeof(state));
     memset(&input, 0, sizeof(input));
     memset(&output, 0, sizeof(output));
-    assert(aegis_state_open(&state, path) == AEGIS_OK);
+    ASSERT_OK(aegis_state_open(&state, path));
     snprintf(input.id, sizeof(input.id), "s_state_test");
     snprintf(input.status, sizeof(input.status), "running");
     snprintf(input.profile, sizeof(input.profile), "coding_agent");
@@ -80,39 +111,39 @@ static void test_state(const char *directory)
     input.steps = 1;
     input.created_ms = 100;
     input.updated_ms = 200;
-    assert(aegis_state_upsert_session(&state, &input) == AEGIS_OK);
-    assert(aegis_state_add_event(
+    ASSERT_OK(aegis_state_upsert_session(&state, &input));
+    ASSERT_OK(aegis_state_add_event(
         &state, input.id, 1, "model_response", "{\"ok\":true}"
-    ) == AEGIS_OK);
-    assert(aegis_state_add_reminder(
+    ));
+    ASSERT_OK(aegis_state_add_reminder(
         &state, input.id, "check result", "tomorrow"
-    ) == AEGIS_OK);
+    ));
 
-    assert(aegis_state_get_session(
+    ASSERT_OK(aegis_state_get_session(
         &state, input.id, &output
-    ) == AEGIS_OK);
-    assert(strcmp(output.task, "state task") == 0);
-    assert(output.steps == 1);
+    ));
+    ASSERT_TRUE(strcmp(output.task, "state task") == 0);
+    ASSERT_TRUE(output.steps == 1);
     aegis_session_record_clear(&output);
 
-    assert(aegis_state_list_sessions(
+    ASSERT_OK(aegis_state_list_sessions(
         &state, &records, &count
-    ) == AEGIS_OK);
-    assert(count == 1U);
-    assert(strcmp(records[0].id, input.id) == 0);
+    ));
+    ASSERT_TRUE(count == 1U);
+    ASSERT_TRUE(strcmp(records[0].id, input.id) == 0);
     aegis_session_record_clear(&records[0]);
     free(records);
 
-    assert(aegis_state_session_events_json(
+    ASSERT_OK(aegis_state_session_events_json(
         &state, input.id, &events
-    ) == AEGIS_OK);
-    assert(strstr(events, "model_response") != NULL);
+    ));
+    ASSERT_TRUE(strstr(events, "model_response") != NULL);
     free(events);
 
-    assert(aegis_state_delete_session(&state, input.id) == AEGIS_OK);
-    assert(aegis_state_get_session(
+    ASSERT_OK(aegis_state_delete_session(&state, input.id));
+    ASSERT_ERR(aegis_state_get_session(
         &state, input.id, &output
-    ) == AEGIS_ERR_NOT_FOUND);
+    ), AEGIS_ERR_NOT_FOUND);
     aegis_state_close(&state);
     unlink(path);
 }
@@ -127,46 +158,46 @@ static void test_trace(const char *directory)
     cJSON *authorization;
     cJSON *note;
 
-    assert(snprintf(
+    ASSERT_TRUE(snprintf(
         path, sizeof(path), "%s/trace.jsonl", directory
     ) > 0);
     memset(&trace, 0, sizeof(trace));
     memset(&document, 0, sizeof(document));
-    assert(aegis_trace_open(&trace, path) == AEGIS_OK);
+    ASSERT_OK(aegis_trace_open(&trace, path));
     aegis_trace_set_redaction(&trace, 1, "top-secret");
-    assert(aegis_trace_event(
+    ASSERT_OK(aegis_trace_event(
         &trace,
         "s_trace_test",
         1,
         "model_response",
         "{\"api_key\":\"visible\",\"Authorization\":\"Bearer visible\","
         "\"note\":\"token=top-secret\"}"
-    ) == AEGIS_OK);
+    ));
     aegis_trace_close(&trace);
 
-    assert(aegis_trace_open(&trace, path) == AEGIS_OK);
-    assert(trace.sequence == 1U);
-    assert(aegis_trace_event(
+    ASSERT_OK(aegis_trace_open(&trace, path));
+    ASSERT_TRUE(trace.sequence == 1U);
+    ASSERT_OK(aegis_trace_event(
         &trace, "s_trace_test", 2, "final", "{\"message\":\"done\"}"
-    ) == AEGIS_OK);
+    ));
     aegis_trace_close(&trace);
 
-    assert(aegis_trace_document_load(path, &document) == AEGIS_OK);
-    assert(document.count == 2U);
+    ASSERT_OK(aegis_trace_document_load(path, &document));
+    ASSERT_TRUE(document.count == 2U);
     payload = cJSON_GetObjectItemCaseSensitive(
         document.events[0], "payload");
     api_key = cJSON_GetObjectItemCaseSensitive(payload, "api_key");
     authorization = cJSON_GetObjectItemCaseSensitive(
         payload, "Authorization");
     note = cJSON_GetObjectItemCaseSensitive(payload, "note");
-    assert(cJSON_IsString(api_key));
-    assert(strcmp(api_key->valuestring, "[REDACTED]") == 0);
-    assert(cJSON_IsString(authorization));
-    assert(strcmp(authorization->valuestring, "[REDACTED]") == 0);
-    assert(cJSON_IsString(note));
-    assert(strstr(note->valuestring, "top-secret") == NULL);
-    assert(strstr(note->valuestring, "[REDACTED]") != NULL);
-    assert(cJSON_GetObjectItemCaseSensitive(
+    ASSERT_TRUE(cJSON_IsString(api_key));
+    ASSERT_TRUE(strcmp(api_key->valuestring, "[REDACTED]") == 0);
+    ASSERT_TRUE(cJSON_IsString(authorization));
+    ASSERT_TRUE(strcmp(authorization->valuestring, "[REDACTED]") == 0);
+    ASSERT_TRUE(cJSON_IsString(note));
+    ASSERT_TRUE(strstr(note->valuestring, "top-secret") == NULL);
+    ASSERT_TRUE(strstr(note->valuestring, "[REDACTED]") != NULL);
+    ASSERT_TRUE(cJSON_GetObjectItemCaseSensitive(
         document.events[1], "sequence")->valueint == 2);
     aegis_trace_document_clear(&document);
     unlink(path);
@@ -192,18 +223,18 @@ static void test_runtime(const char *directory)
     FILE *created;
     char content[32];
 
-    assert(aegis_config_load_preset("aegis", &config) == AEGIS_OK);
-    assert(aegis_config_select_provider(&config, "mock") == AEGIS_OK);
+    ASSERT_OK(aegis_config_load_preset("aegis", &config));
+    ASSERT_OK(aegis_config_select_provider(&config, "mock"));
     snprintf(config.state_path, sizeof(config.state_path), "runtime/state.db");
     snprintf(
         config.trace_directory,
         sizeof(config.trace_directory),
         "runtime/traces"
     );
-    assert(setenv("AEGIS_MOCK_RESPONSES", responses, 1) == 0);
+    ASSERT_TRUE(setenv("AEGIS_MOCK_RESPONSES", responses, 1) == 0);
 
     runtime = aegis_runtime_new_with_config(&config);
-    assert(runtime != NULL);
+    ASSERT_NOT_NULL(runtime);
     memset(&message, 0, sizeof(message));
     message.channel = "test";
     message.user_id = "tester";
@@ -214,44 +245,44 @@ static void test_runtime(const char *directory)
     message.auto_approve = 1;
     message.no_input = 1;
     aegis_response_init(&response);
-    assert(aegis_runtime_handle_message(
+    ASSERT_OK(aegis_runtime_handle_message(
         runtime, &message, &response
-    ) == AEGIS_OK);
-    assert(strcmp(response.status, "success") == 0);
-    assert(strcmp(response.text, "runtime complete") == 0);
-    assert(response.steps == 2);
+    ));
+    ASSERT_TRUE(strcmp(response.status, "success") == 0);
+    ASSERT_TRUE(strcmp(response.text, "runtime complete") == 0);
+    ASSERT_TRUE(response.steps == 2);
     aegis_runtime_free(runtime);
-    assert(unsetenv("AEGIS_MOCK_RESPONSES") == 0);
+    ASSERT_TRUE(unsetenv("AEGIS_MOCK_RESPONSES") == 0);
 
-    assert(snprintf(
+    ASSERT_TRUE(snprintf(
         created_path,
         sizeof(created_path),
         "%s/runtime-created.txt",
         directory
     ) > 0);
     created = fopen(created_path, "rb");
-    assert(created != NULL);
-    assert(fread(content, 1U, sizeof(content) - 1U, created) ==
+    ASSERT_NOT_NULL(created);
+    ASSERT_TRUE(fread(content, 1U, sizeof(content) - 1U, created) ==
            strlen("from runtime"));
     content[strlen("from runtime")] = '\0';
     fclose(created);
-    assert(strcmp(content, "from runtime") == 0);
+    ASSERT_TRUE(strcmp(content, "from runtime") == 0);
 
-    assert(snprintf(
+    ASSERT_TRUE(snprintf(
         state_path, sizeof(state_path), "%s/runtime/state.db", directory
     ) > 0);
     memset(&state, 0, sizeof(state));
     memset(&record, 0, sizeof(record));
-    assert(aegis_state_open(&state, state_path) == AEGIS_OK);
-    assert(aegis_state_get_session(
+    ASSERT_OK(aegis_state_open(&state, state_path));
+    ASSERT_OK(aegis_state_get_session(
         &state, message.session_id, &record
-    ) == AEGIS_OK);
-    assert(strcmp(record.status, "success") == 0);
-    assert(record.steps == 2);
+    ));
+    ASSERT_TRUE(strcmp(record.status, "success") == 0);
+    ASSERT_TRUE(record.steps == 2);
     aegis_session_record_clear(&record);
     aegis_state_close(&state);
 
-    assert(snprintf(
+    ASSERT_TRUE(snprintf(
         trace_path,
         sizeof(trace_path),
         "%s/runtime/traces/%s.jsonl",
@@ -259,8 +290,8 @@ static void test_runtime(const char *directory)
         message.session_id
     ) > 0);
     memset(&trace, 0, sizeof(trace));
-    assert(aegis_trace_document_load(trace_path, &trace) == AEGIS_OK);
-    assert(trace.count >= 8U);
+    ASSERT_OK(aegis_trace_document_load(trace_path, &trace));
+    ASSERT_TRUE(trace.count >= 8U);
     aegis_trace_document_clear(&trace);
 
     aegis_response_free(&response);
@@ -269,22 +300,22 @@ static void test_runtime(const char *directory)
     unlink(state_path);
     {
         char journal[4096];
-        assert(snprintf(
+        ASSERT_TRUE(snprintf(
             journal, sizeof(journal), "%s-wal", state_path
         ) > 0);
         unlink(journal);
-        assert(snprintf(
+        ASSERT_TRUE(snprintf(
             journal, sizeof(journal), "%s-shm", state_path
         ) > 0);
         unlink(journal);
     }
     {
         char path[4096];
-        assert(snprintf(
+        ASSERT_TRUE(snprintf(
             path, sizeof(path), "%s/runtime/traces", directory
         ) > 0);
         rmdir(path);
-        assert(snprintf(path, sizeof(path), "%s/runtime", directory) > 0);
+        ASSERT_TRUE(snprintf(path, sizeof(path), "%s/runtime", directory) > 0);
         rmdir(path);
     }
 }
@@ -294,7 +325,7 @@ int main(void)
     char template[] = "/tmp/aegis-runtime-test-XXXXXX";
     char *directory = mkdtemp(template);
 
-    assert(directory != NULL);
+    ASSERT_NOT_NULL(directory);
     test_action_parser();
     test_state(directory);
     test_trace(directory);

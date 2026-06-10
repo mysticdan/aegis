@@ -80,7 +80,53 @@ sudo apt install build-essential cmake pkg-config \
 
 Package names differ between operating systems and distributions.
 
+## Quick Install
+
+The recommended way to build and install Aegis:
+
+```bash
+./scripts/build.sh
+```
+
+This builds the project and installs the binary and resources to `~/.aegis/`.
+After installation, add the following to your shell profile (`~/.bashrc`,
+`~/.zshrc`, etc.):
+
+```bash
+export PATH="$HOME/.aegis/bin:$PATH"
+```
+
+Then reload your shell:
+
+```bash
+source ~/.bashrc
+```
+
+Verify the installation:
+
+```bash
+aegis --version
+aegis doctor
+```
+
+To uninstall:
+
+```bash
+./scripts/build.sh --uninstall
+```
+
 ## Build
+
+### Build Script (recommended)
+
+```bash
+./scripts/build.sh                  # Release build
+./scripts/build.sh --debug          # Debug build
+./scripts/build.sh --sanitize       # Debug with ASan/UBSan
+./scripts/build.sh --uninstall      # Remove installation
+```
+
+### Manual CMake
 
 Configure and build from the repository root:
 
@@ -95,14 +141,6 @@ The executable is created at:
 build/aegis
 ```
 
-There is no CMake install target yet. Use `./build/aegis` directly. If the
-binary or resources are relocated, point the process at the copied resource
-root explicitly:
-
-```bash
-export AEGIS_RESOURCE_DIR=/opt/aegis/share/aegis
-```
-
 The build copies `config/`, `profiles/`, and `prompts/` into:
 
 ```text
@@ -110,6 +148,23 @@ build/aegis-resources/
 ```
 
 The binary uses that directory as its built-in resource bundle.
+
+### Build Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `AEGIS_BUILD_APP` | `ON` | Build the CLI executable |
+| `AEGIS_ENABLE_SANITIZERS` | `OFF` | Enable AddressSanitizer and UBSan |
+| `AEGIS_ENABLE_HARDENING` | `ON` | Enable binary hardening flags |
+
+Example with options:
+
+```bash
+cmake -S . -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DAEGIS_ENABLE_SANITIZERS=ON \
+  -DAEGIS_ENABLE_HARDENING=ON
+```
 
 ## Test
 
@@ -138,7 +193,7 @@ The recommended workflow is to initialize the target workspace first.
 
 ```bash
 cd /path/to/project
-/path/to/aegis/build/aegis init
+aegis init
 ```
 
 This creates:
@@ -168,15 +223,15 @@ This creates:
 Validate the installation:
 
 ```bash
-/path/to/aegis/build/aegis doctor
-/path/to/aegis/build/aegis config check
-/path/to/aegis/build/aegis tools list
+aegis doctor
+aegis config check
+aegis tools list
 ```
 
 Perform a dry run before contacting a provider:
 
 ```bash
-/path/to/aegis/build/aegis run \
+aegis run \
   --dry-run \
   --task "Explain the repository structure"
 ```
@@ -192,7 +247,7 @@ export OPENROUTER_API_KEY='...'
 Run a task:
 
 ```bash
-./build/aegis run \
+aegis run \
   --workspace /path/to/project \
   --task "Inspect the build and explain why the tests fail"
 ```
@@ -211,7 +266,7 @@ Supported provider selectors:
 The provider and model can be overridden for one command:
 
 ```bash
-./build/aegis run \
+aegis run \
   --provider ollama \
   --model qwen2.5-coder \
   --task "Summarize this project"
@@ -226,7 +281,7 @@ action:
 
 ```bash
 export AEGIS_MOCK_RESPONSE='{"type":"final","message":"Mock run succeeded."}'
-./build/aegis run --provider mock --task "Smoke test"
+aegis run --provider mock --task "Smoke test"
 ```
 
 ## Modes
@@ -234,9 +289,9 @@ export AEGIS_MOCK_RESPONSE='{"type":"final","message":"Mock run succeeded."}'
 Use `--mode` to select a preset:
 
 ```bash
-./build/aegis run --mode safe --task "List the visible files"
-./build/aegis run --mode dev --task "Run the tests and fix the failure"
-./build/aegis run --mode dangerous --yes --task "Perform the approved task"
+aegis run --mode safe --task "List the visible files"
+aegis run --mode dev --task "Run the tests and fix the failure"
+aegis run --mode dangerous --yes --task "Perform the approved task"
 ```
 
 | Mode | Default profile | Effective intent |
@@ -279,42 +334,42 @@ A profile cannot grant itself a permission denied by the config.
 Start an interactive session:
 
 ```bash
-./build/aegis chat --workspace /path/to/project
+aegis chat --workspace /path/to/project
 ```
 
 List and inspect sessions:
 
 ```bash
-./build/aegis sessions list
-./build/aegis sessions show <session-id>
+aegis sessions list
+aegis sessions show <session-id>
 ```
 
 Resume a session:
 
 ```bash
-./build/aegis resume <session-id>
+aegis resume <session-id>
 ```
 
 Inspect or replay its trace:
 
 ```bash
-./build/aegis inspect --session <session-id>
-./build/aegis replay --trace .aegis/traces/<session-id>.jsonl
+aegis inspect --session <session-id>
+aegis replay --trace .aegis/traces/<session-id>.jsonl
 ```
 
 Inspect tool metadata and execute a controlled manual tool test:
 
 ```bash
-./build/aegis tools info read_file
-./build/aegis tools schema read_file
-./build/aegis tools test read_file --args '{"path":"README.md"}'
+aegis tools info read_file
+aegis tools schema read_file
+aegis tools test read_file --args '{"path":"README.md"}'
 ```
 
 Use `--json` for machine-readable command output:
 
 ```bash
-./build/aegis doctor --json
-./build/aegis tools list --json
+aegis doctor --json
+aegis tools list --json
 ```
 
 ## Configuration Discovery
@@ -350,6 +405,8 @@ profiles/        Built-in agent profiles
 prompts/         Built-in system prompts
 tests/           C and Python unit/integration tests
 docs/            Design and developer documentation
+cmake/           CMake modules (compiler flags, dependencies, hardening)
+scripts/         Build, test, and install helper scripts
 ```
 
 ## Documentation

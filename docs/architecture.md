@@ -63,6 +63,8 @@ src/main.c
 | `profiles/` | Built-in agent profiles |
 | `prompts/` | System prompts referenced by profiles |
 | `tests/` | C unit tests and Python integration/synchronization tests |
+| `cmake/` | CMake modules for compiler flags, dependencies, and hardening |
+| `scripts/` | Build, test, and install helper scripts |
 
 ## 4. Build-Time Components
 
@@ -85,6 +87,27 @@ aegis_runtime
 
 The `aegis` executable links `aegis_runtime`, which brings in the lower
 layers transitively.
+
+Build configuration is modularized into three CMake modules:
+
+```text
+cmake/compiler_flags.cmake
+  Warning flags, C standard, debug/release options, sanitizer helper
+
+cmake/dependencies.cmake
+  External dependency discovery (cJSON, libcurl, SQLite3, optional seccomp)
+
+cmake/hardening.cmake
+  Binary security hardening (stack protector, FORTIFY_SOURCE, PIE, RELRO)
+```
+
+The root `CMakeLists.txt` includes these modules and applies them to each
+target via reusable functions:
+
+- `aegis_apply_compiler_flags(<target>)` -- warning and standard flags
+- `aegis_link_dependencies(<target>)` -- link external libraries
+- `aegis_apply_hardening(<target>)` -- binary hardening flags
+- `aegis_apply_sanitizers(<target>)` -- ASan/UBSan instrumentation
 
 CMake also copies config, profile, and prompt resources into
 `<build>/aegis-resources/`. The compiled CLI receives that path through

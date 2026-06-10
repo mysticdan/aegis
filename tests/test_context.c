@@ -1,10 +1,42 @@
-#include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <cjson/cJSON.h>
 
 #include "aegis/context.h"
+
+#define ASSERT_OK(expr) do { \
+    AegisStatus _s = (expr); \
+    if (_s != AEGIS_OK) { \
+        fprintf(stderr, "FAIL:%d: %s == %d\n", __LINE__, #expr, _s); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_ERR(expr, expected) do { \
+    AegisStatus _s = (expr); \
+    if (_s != (expected)) { \
+        fprintf(stderr, "FAIL:%d: %s == %d (expected %d)\n", \
+                __LINE__, #expr, _s, (int)(expected)); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_NOT_NULL(expr) do { \
+    void *_p = (void *)(expr); \
+    if (!_p) { \
+        fprintf(stderr, "FAIL:%d: %s is NULL\n", __LINE__, #expr); \
+        abort(); \
+    } \
+} while (0)
+
+#define ASSERT_TRUE(expr) do { \
+    if (!(expr)) { \
+        fprintf(stderr, "FAIL:%d: %s\n", __LINE__, #expr); \
+        abort(); \
+    } \
+} while (0)
 
 static AegisMessage message_with_text(const char *text)
 {
@@ -98,45 +130,45 @@ static void test_full_context(const AegisToolRegistry *registry)
     };
     size_t index;
 
-    assert(aegis_config_load_preset("dev", &config) == AEGIS_OK);
+    ASSERT_OK(aegis_config_load_preset("dev", &config));
     aegis_context_init(&context);
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
+    ));
 
-    assert(context.message_count == 8U);
-    assert(context.messages[0].role == AEGIS_CONTEXT_ROLE_SYSTEM);
-    assert(strcmp(context.messages[0].name, "system_prompt") == 0);
-    assert(strstr(context.messages[0].content, "Aegis Coding Agent") != NULL);
-    assert(strcmp(context.messages[1].name, "workspace_summary") == 0);
-    assert(strcmp(context.messages[2].name, "history_summary") == 0);
-    assert(strcmp(context.messages[3].content, "old user") == 0);
-    assert(strcmp(context.messages[4].content, "old assistant") == 0);
-    assert(context.messages[5].kind == AEGIS_CONTEXT_EVENT_OBSERVATION);
-    assert(context.messages[6].kind == AEGIS_CONTEXT_EVENT_FILE_READ);
-    assert(strcmp(context.messages[6].path, "src/core/context.c") == 0);
-    assert(context.messages[7].role == AEGIS_CONTEXT_ROLE_USER);
-    assert(strcmp(context.messages[7].content, "implement context") == 0);
-    assert(context.total_chars > 0U);
-    assert(!context.truncated);
-    assert(context.dropped_history_count == 0U);
+    ASSERT_TRUE(context.message_count == 8U);
+    ASSERT_TRUE(context.messages[0].role == AEGIS_CONTEXT_ROLE_SYSTEM);
+    ASSERT_TRUE(strcmp(context.messages[0].name, "system_prompt") == 0);
+    ASSERT_TRUE(strstr(context.messages[0].content, "Aegis Coding Agent") != NULL);
+    ASSERT_TRUE(strcmp(context.messages[1].name, "workspace_summary") == 0);
+    ASSERT_TRUE(strcmp(context.messages[2].name, "history_summary") == 0);
+    ASSERT_TRUE(strcmp(context.messages[3].content, "old user") == 0);
+    ASSERT_TRUE(strcmp(context.messages[4].content, "old assistant") == 0);
+    ASSERT_TRUE(context.messages[5].kind == AEGIS_CONTEXT_EVENT_OBSERVATION);
+    ASSERT_TRUE(context.messages[6].kind == AEGIS_CONTEXT_EVENT_FILE_READ);
+    ASSERT_TRUE(strcmp(context.messages[6].path, "src/core/context.c") == 0);
+    ASSERT_TRUE(context.messages[7].role == AEGIS_CONTEXT_ROLE_USER);
+    ASSERT_TRUE(strcmp(context.messages[7].content, "implement context") == 0);
+    ASSERT_TRUE(context.total_chars > 0U);
+    ASSERT_TRUE(!context.truncated);
+    ASSERT_TRUE(context.dropped_history_count == 0U);
 
-    assert(context.tool_count ==
+    ASSERT_TRUE(context.tool_count ==
         sizeof(expected_tools) / sizeof(expected_tools[0]));
     for (index = 0U; index < context.tool_count; ++index) {
         cJSON *schema;
 
-        assert(strcmp(context.tools[index].name, expected_tools[index]) == 0);
-        assert(strcmp(context.tools[index].policy_decision, "deny") != 0);
+        ASSERT_TRUE(strcmp(context.tools[index].name, expected_tools[index]) == 0);
+        ASSERT_TRUE(strcmp(context.tools[index].policy_decision, "deny") != 0);
         schema = cJSON_ParseWithOpts(
             context.tools[index].schema_json,
             NULL,
             1
         );
-        assert(schema != NULL);
+        ASSERT_NOT_NULL(schema);
         cJSON_Delete(schema);
     }
 
@@ -145,11 +177,11 @@ static void test_full_context(const AegisToolRegistry *registry)
     old_user[0] = 'X';
     observation[0] = 'X';
     strcpy(config.policy_decisions[0].decision, "deny");
-    assert(strcmp(context.messages[1].content, "workspace: clean") == 0);
-    assert(strcmp(context.messages[3].content, "old user") == 0);
-    assert(strcmp(context.messages[5].content, "tests passed") == 0);
-    assert(strcmp(context.messages[7].content, "implement context") == 0);
-    assert(strcmp(context.tools[0].policy_decision, "allow") == 0);
+    ASSERT_TRUE(strcmp(context.messages[1].content, "workspace: clean") == 0);
+    ASSERT_TRUE(strcmp(context.messages[3].content, "old user") == 0);
+    ASSERT_TRUE(strcmp(context.messages[5].content, "tests passed") == 0);
+    ASSERT_TRUE(strcmp(context.messages[7].content, "implement context") == 0);
+    ASSERT_TRUE(strcmp(context.tools[0].policy_decision, "allow") == 0);
 
     aegis_context_clear(&context);
     aegis_context_clear(&context);
@@ -183,33 +215,33 @@ static void test_config_and_profile_filtering(
         .workspace_summary = "safe workspace"
     };
 
-    assert(aegis_config_load_preset("safe", &config) == AEGIS_OK);
+    ASSERT_OK(aegis_config_load_preset("safe", &config));
     aegis_context_init(&context);
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.tool_count == 2U);
-    assert(strcmp(context.tools[0].name, AEGIS_TOOL_LIST_DIR) == 0);
-    assert(strcmp(context.tools[1].name, AEGIS_TOOL_READ_FILE) == 0);
-    assert(find_message(&context, AEGIS_CONTEXT_EVENT_OBSERVATION) != NULL);
-    assert(find_message(&context, AEGIS_CONTEXT_EVENT_FILE_READ) == NULL);
+    ));
+    ASSERT_TRUE(context.tool_count == 2U);
+    ASSERT_TRUE(strcmp(context.tools[0].name, AEGIS_TOOL_LIST_DIR) == 0);
+    ASSERT_TRUE(strcmp(context.tools[1].name, AEGIS_TOOL_READ_FILE) == 0);
+    ASSERT_TRUE(find_message(&context, AEGIS_CONTEXT_EVENT_OBSERVATION) != NULL);
+    ASSERT_TRUE(find_message(&context, AEGIS_CONTEXT_EVENT_FILE_READ) == NULL);
     aegis_context_clear(&context);
 
     config.include_recent_observations = 0;
     config.include_system_prompt = 0;
     config.include_tool_schemas = 0;
     config.include_workspace_summary = 0;
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.message_count == 1U);
-    assert(strcmp(context.messages[0].content, "now") == 0);
+    ));
+    ASSERT_TRUE(context.message_count == 1U);
+    ASSERT_TRUE(strcmp(context.messages[0].content, "now") == 0);
     aegis_context_clear(&context);
 
     config.include_recent_observations = 1;
@@ -218,14 +250,14 @@ static void test_config_and_profile_filtering(
     config.active_profile.include_system_prompt = 0;
     config.active_profile.include_tool_schemas = 0;
     config.active_profile.include_recent_observations = 0;
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.tool_count == 0U);
-    assert(find_message(&context, AEGIS_CONTEXT_EVENT_OBSERVATION) == NULL);
+    ));
+    ASSERT_TRUE(context.tool_count == 0U);
+    ASSERT_TRUE(find_message(&context, AEGIS_CONTEXT_EVENT_OBSERVATION) == NULL);
     aegis_context_clear(&context);
 }
 
@@ -262,32 +294,32 @@ static void test_history_limits(const AegisToolRegistry *registry)
     config.max_history_events = 2;
     config.active_profile.max_context_chars = 100;
     aegis_context_init(&context);
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.message_count == 3U);
-    assert(strcmp(context.messages[0].content, "bbb") == 0);
-    assert(strcmp(context.messages[1].content, "ccc") == 0);
-    assert(context.dropped_history_count == 1U);
-    assert(context.truncated);
+    ));
+    ASSERT_TRUE(context.message_count == 3U);
+    ASSERT_TRUE(strcmp(context.messages[0].content, "bbb") == 0);
+    ASSERT_TRUE(strcmp(context.messages[1].content, "ccc") == 0);
+    ASSERT_TRUE(context.dropped_history_count == 1U);
+    ASSERT_TRUE(context.truncated);
     aegis_context_clear(&context);
 
     config.max_history_events = 3;
     config.active_profile.max_context_chars = 8;
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.message_count == 2U);
-    assert(strcmp(context.messages[0].content, "ccc") == 0);
-    assert(strcmp(context.messages[1].content, "now") == 0);
-    assert(context.dropped_history_count == 2U);
-    assert(context.total_chars == 6U);
+    ));
+    ASSERT_TRUE(context.message_count == 2U);
+    ASSERT_TRUE(strcmp(context.messages[0].content, "ccc") == 0);
+    ASSERT_TRUE(strcmp(context.messages[1].content, "now") == 0);
+    ASSERT_TRUE(context.dropped_history_count == 2U);
+    ASSERT_TRUE(context.total_chars == 6U);
     aegis_context_clear(&context);
 }
 
@@ -325,17 +357,17 @@ static void test_content_caps(const AegisToolRegistry *registry)
     config.max_tool_output_bytes = 5;
     config.max_file_read_bytes = 3;
     aegis_context_init(&context);
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(context.message_count == 3U);
-    assert(strcmp(context.messages[0].content, "ab") == 0);
-    assert(strcmp(context.messages[1].content, "abc") == 0);
-    assert(context.truncated);
-    assert(context.dropped_history_count == 0U);
+    ));
+    ASSERT_TRUE(context.message_count == 3U);
+    ASSERT_TRUE(strcmp(context.messages[0].content, "ab") == 0);
+    ASSERT_TRUE(strcmp(context.messages[1].content, "abc") == 0);
+    ASSERT_TRUE(context.truncated);
+    ASSERT_TRUE(context.dropped_history_count == 0U);
     aegis_context_clear(&context);
 }
 
@@ -359,50 +391,50 @@ static void test_failures(const AegisToolRegistry *registry)
     disable_optional_context(&config);
     config.active_profile.max_context_chars = 10;
     aegis_context_init(&context);
-    assert(aegis_context_build(
+    ASSERT_OK(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_OK);
-    assert(strcmp(context.messages[0].content, "ok") == 0);
+    ));
+    ASSERT_TRUE(strcmp(context.messages[0].content, "ok") == 0);
 
     config.active_profile.max_context_chars = 3;
     input.current_message = &too_large;
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_RUNTIME);
-    assert(context.message_count == 1U);
-    assert(strcmp(context.messages[0].content, "ok") == 0);
+    ), AEGIS_ERR_RUNTIME);
+    ASSERT_TRUE(context.message_count == 1U);
+    ASSERT_TRUE(strcmp(context.messages[0].content, "ok") == 0);
 
     invalid.session_id = NULL;
     input.current_message = &invalid;
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_INVALID_ARGUMENT);
-    assert(aegis_context_build(
+    ), AEGIS_ERR_INVALID_ARGUMENT);
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         NULL
-    ) == AEGIS_ERR_INVALID_ARGUMENT);
+    ), AEGIS_ERR_INVALID_ARGUMENT);
 
     input.current_message = &valid;
     input.history = &invalid_history;
     input.history_count = 1U;
     config.active_profile.max_context_chars = 100;
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_INVALID_ARGUMENT);
+    ), AEGIS_ERR_INVALID_ARGUMENT);
     aegis_context_clear(&context);
 }
 
@@ -415,46 +447,46 @@ static void test_prompt_failures(const AegisToolRegistry *registry)
         .current_message = &current
     };
 
-    assert(aegis_config_load_preset("dev", &config) == AEGIS_OK);
+    ASSERT_OK(aegis_config_load_preset("dev", &config));
     config.include_tool_schemas = 0;
     config.include_workspace_summary = 0;
     aegis_context_init(&context);
 
     strcpy(config.active_profile.prompt_path, "../outside.md");
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_PATH_ESCAPE);
+    ), AEGIS_ERR_PATH_ESCAPE);
 
     strcpy(config.active_profile.prompt_path, "/tmp/outside.md");
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_PATH_ESCAPE);
+    ), AEGIS_ERR_PATH_ESCAPE);
 
     strcpy(config.active_profile.prompt_path, "prompts/missing.md");
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_NOT_FOUND);
+    ), AEGIS_ERR_NOT_FOUND);
 
     strcpy(
         config.active_profile.prompt_path,
         "prompts/system_coding_agent.md"
     );
     config.active_profile.max_context_chars = 16;
-    assert(aegis_context_build(
+    ASSERT_ERR(aegis_context_build(
         &context,
         &config,
         registry,
         &input
-    ) == AEGIS_ERR_RUNTIME);
+    ), AEGIS_ERR_RUNTIME);
     aegis_context_clear(&context);
 }
 
@@ -462,21 +494,21 @@ int main(void)
 {
     AegisToolRegistry registry;
 
-    assert(strcmp(
+    ASSERT_TRUE(strcmp(
         aegis_context_role_name(AEGIS_CONTEXT_ROLE_ASSISTANT),
         "assistant"
     ) == 0);
-    assert(strcmp(
+    ASSERT_TRUE(strcmp(
         aegis_context_event_kind_name(AEGIS_CONTEXT_EVENT_FILE_READ),
         "file_read"
     ) == 0);
-    assert(aegis_context_role_name((AegisContextRole)99) == NULL);
-    assert(aegis_context_event_kind_name(
+    ASSERT_TRUE(aegis_context_role_name((AegisContextRole)99) == NULL);
+    ASSERT_TRUE(aegis_context_event_kind_name(
         (AegisContextEventKind)99
     ) == NULL);
 
     aegis_tool_registry_init(&registry);
-    assert(aegis_tool_registry_register_defaults(&registry) == AEGIS_OK);
+    ASSERT_OK(aegis_tool_registry_register_defaults(&registry));
     test_full_context(&registry);
     test_config_and_profile_filtering(&registry);
     test_history_limits(&registry);

@@ -195,7 +195,9 @@ Future additions:
 
 ## 10. Developer Experience
 
-- Add CMake install and packaging rules.
+- Add build script with install to `~/.aegis/bin/` (done: `scripts/build.sh`).
+- Modularize CMake with `cmake/` modules (done: compiler flags, dependencies,
+  hardening).
 - Generate API documentation from public headers.
 - Add examples for embedding `AegisRuntime`.
 - Add config/profile schema validation tooling.
