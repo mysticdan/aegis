@@ -65,7 +65,7 @@ src/main.c
 | `prompts/` | System prompts referenced by profiles |
 | `tests/` | C unit tests and Python integration/synchronization tests |
 | `cmake/` | CMake modules for compiler flags, dependencies, and hardening |
-| `scripts/` | Build, install, and uninstall helper scripts |
+| `scripts/` | Build, install, and uninstall helper scripts (`build.sh`, `uninstall.sh`) |
 
 ## 4. Build-Time Components
 
@@ -151,11 +151,12 @@ The validator requires non-empty `channel`, `user_id`, `session_id`, and
 
 ### 5.2 `AegisResponse`
 
-`AegisResponse` owns its `text` string:
+`AegisResponse` owns its `text` and `error_message` strings:
 
 ```c
 typedef struct {
     char *text;
+    char *error_message;
     int exit_code;
     char session_id[96];
     char trace_path[4096];
@@ -165,7 +166,8 @@ typedef struct {
 ```
 
 Callers initialize it with `aegis_response_init()` and release it with
-`aegis_response_free()`.
+`aegis_response_free()`. On provider failure, `error_message` contains the
+detailed error from the API (e.g., HTTP status, provider message).
 
 ### 5.3 `AegisRuntime`
 

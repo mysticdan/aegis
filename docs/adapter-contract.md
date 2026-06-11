@@ -150,6 +150,7 @@ The public response is:
 ```c
 typedef struct {
     char *text;
+    char *error_message;
     int exit_code;
     char session_id[96];
     char trace_path[4096];
@@ -169,11 +170,14 @@ status = aegis_runtime_handle_message(runtime, &message, &response);
 aegis_response_free(&response);
 ```
 
-`text` is owned by the response. The fixed-size fields are stored inline.
+`text` and `error_message` are owned by the response. The fixed-size fields
+are stored inline.
 
 Current core behavior fills:
 
 - `text` after a successful `final` action.
+- `error_message` on provider failure (HTTP status, auth error, rate limit,
+  model not found, etc.).
 - `session_id`.
 - `trace_path`.
 - `status`.

@@ -290,7 +290,7 @@ It is not a regular-expression engine.
 ### 10.1 `shell`
 
 ```json
-{"command":"cmake --build build -j2"}
+{"command":"cmake --build build -j"}
 ```
 
 Execution requires:

@@ -258,6 +258,10 @@ The default config uses OpenRouter and reads its key from the environment:
 export OPENROUTER_API_KEY='...'
 ```
 
+Provider errors now include detailed messages from the API (authentication
+failure, rate limit, quota exceeded, model not found, etc.) so you can
+diagnose issues quickly.
+
 Run a task:
 
 ```bash

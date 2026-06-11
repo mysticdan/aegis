@@ -169,9 +169,12 @@ With `--json`, the command writes one JSON object to stdout. Error objects use:
   "status": "error",
   "command": "run",
   "exit_code": 5,
-  "error": "Provider error"
+  "error": "Provider error: User not found."
 }
 ```
+
+Provider errors include the upstream API message (HTTP status, authentication
+failure, rate limit, quota exceeded, etc.).
 
 Scripts should use both the process exit code and the JSON `status`.
 
