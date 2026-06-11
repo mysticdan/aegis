@@ -7,7 +7,7 @@
 #include "aegis/config.h"
 #include "aegis/tool_registry.h"
 
-#define AEGIS_CLI_VERSION "1.0.0"
+#define AEGIS_CLI_VERSION "0.1.0"
 
 #define AEGIS_CLI_TASK_MAX_BYTES (1024U * 1024U)
 #define AEGIS_CLI_TRACE_LINE_MAX_BYTES (1024U * 1024U)

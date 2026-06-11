@@ -105,7 +105,7 @@ def test_help_and_version():
 
     result = run("--version")
     expect_code(result, 0)
-    assert result.stdout == "aegis 1.0.0\n"
+    assert result.stdout == "aegis 0.1.0\n"
 
     result = run("version", "--verbose")
     expect_code(result, 0)
@@ -114,7 +114,7 @@ def test_help_and_version():
     result = run("version", "--json")
     expect_code(result, 0)
     payload = parse_json(result)
-    assert payload["version"] == "1.0.0"
+    assert payload["version"] == "0.1.0"
     assert payload["status"] == "success"
 
     result = run("unknown", "--json")

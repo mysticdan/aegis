@@ -329,7 +329,7 @@ AegisStatus aegis_mcp_request(
             "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\","
             "\"params\":{\"protocolVersion\":\"2025-06-18\","
             "\"capabilities\":{},\"clientInfo\":{\"name\":\"aegis\","
-            "\"version\":\"1.0.0\"}}}\n"
+            "\"version\":\"0.1.0\"}}}\n"
             "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\","
             "\"params\":{}}\n";
         size_t input_length =

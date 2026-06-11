@@ -24,7 +24,7 @@ Adapter
   -> Adapter
 ```
 
-The current source tree identifies itself as Aegis `1.0.0`.
+The current source tree identifies itself as Aegis `0.1.0`.
 
 ## What Aegis Provides
 

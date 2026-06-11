@@ -2,7 +2,7 @@
 
 ## 1. Status
 
-The current source tree reports version `1.0.0`. The major runtime path is
+The current source tree reports version `0.1.0`. The major runtime path is
 operational:
 
 - Modular CLI.

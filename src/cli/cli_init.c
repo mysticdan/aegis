@@ -280,13 +280,13 @@ static int atomic_write_file(
         return 0;
     }
     while (offset < length) {
-        ssize_t written = write(
+        ssize_t written_ = write(
             descriptor,
             content + offset,
             length - offset
         );
 
-        if (written < 0) {
+        if (written_ < 0) {
             if (errno == EINTR) {
                 continue;
             }
@@ -295,7 +295,7 @@ static int atomic_write_file(
             snprintf(error, error_size, "cannot write file: %s", path);
             return 0;
         }
-        offset += (size_t)written;
+        offset += (size_t)written_;
     }
     if (fsync(descriptor) != 0 || close(descriptor) != 0) {
         unlink(temporary);

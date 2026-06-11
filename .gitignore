@@ -1,9 +1,11 @@
 .env
 traces
 state
-build*
+build
+build-*
 __pycache__
 *.pyc
 .understand-anything
 .codegraph
 .aegis
+.others

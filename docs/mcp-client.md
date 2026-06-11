@@ -244,7 +244,7 @@ Initialization currently advertises:
 {
   "protocolVersion":"2025-06-18",
   "capabilities":{},
-  "clientInfo":{"name":"aegis","version":"1.0.0"}
+  "clientInfo":{"name":"aegis","version":"0.1.0"}
 }
 ```
 
