@@ -344,6 +344,8 @@ int aegis_cli_cmd_chat(const CliOptions *options)
             message.ask_user = cli_ask_user;
             message.send_message = cli_send_message;
             message.is_cancelled = cli_interrupted;
+            message.progress = cli_agent_progress;
+            message.progress_userdata = (void *)options;
             aegis_response_init(&response);
             status = aegis_runtime_handle_message(runtime, &message, &response);
             free(task);
