@@ -16,6 +16,7 @@ void aegis_llm_response_free(AegisLLMResponse *response)
         return;
     }
     free(response->content);
+    free(response->reasoning_summary);
     free(response->raw_json);
     free(response->error_message);
     memset(response, 0, sizeof(*response));
