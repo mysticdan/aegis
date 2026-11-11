@@ -18,6 +18,7 @@ typedef struct {
 
 typedef struct {
     char *content;
+    char *reasoning_summary; /* Explicit provider-supplied summary, if any. */
     char *raw_json;
     char *error_message;
     char finish_reason[32];
