@@ -504,6 +504,18 @@ static AegisStatus parse_openai_response(
     if (!response->content) {
         return AEGIS_ERR_PARSE;
     }
+    /* Do not expose raw reasoning or reasoning_content as a summary. */
+    {
+        cJSON *summary = message
+            ? cJSON_GetObjectItemCaseSensitive(message, "reasoning_summary")
+            : NULL;
+        if (cJSON_IsString(summary)) {
+            response->reasoning_summary = aegis_strdup(summary->valuestring);
+            if (!response->reasoning_summary) {
+                return AEGIS_ERR_OOM;
+            }
+        }
+    }
     if (cJSON_IsString(finish)) {
         snprintf(
             response->finish_reason,
@@ -969,6 +981,16 @@ AegisStatus aegis_provider_generate_mock(
         );
     }
     response->raw_json = aegis_strdup(response->content);
+    {
+        const char *summary = getenv("AEGIS_MOCK_REASONING_SUMMARY");
+        if (summary && summary[0] != '\0') {
+            response->reasoning_summary = aegis_strdup(summary);
+        }
+    }
     snprintf(response->finish_reason, sizeof(response->finish_reason), "stop");
-    return response->content && response->raw_json ? AEGIS_OK : AEGIS_ERR_OOM;
+    return response->content && response->raw_json &&
+        (!getenv("AEGIS_MOCK_REASONING_SUMMARY") ||
+         !getenv("AEGIS_MOCK_REASONING_SUMMARY")[0] ||
+         response->reasoning_summary)
+        ? AEGIS_OK : AEGIS_ERR_OOM;
 }
