@@ -177,6 +177,32 @@ cmake -S . -B build \
   -DAEGIS_ENABLE_HARDENING=ON
 ```
 
+## Live CLI activity and tool approvals
+
+Human-readable `aegis run`, `aegis chat`, and `aegis resume` now
+display the model request, tool calls with sanitized arguments **before**
+approval and execution, risk/policy status, approval decisions and results.
+
+```text
+[step 1] Thinking: waiting for model (openrouter)...
+[step 1] Agent requests tool: shell (risk=high, policy=require_approval)
+    command: make test
+Approve the tool call above? [y/N]
+```
+
+This is a live **activity indicator**, not access to the model's hidden
+chain-of-thought. If an OpenAI-compatible API explicitly includes a
+`message.reasoning_summary` string, the provider-supplied summary can
+be displayed. Aegis does not fabricate one. Token streaming is not part
+of this update.
+
+`--quiet` suppresses routine events, while `--json` keeps stdout a
+single machine-readable JSON object. Pending approval previews still go
+to stderr. Sensitive argument keys and contents are hidden heuristically
+on the CLI, but this does **not** guarantee that arbitrary secrets will
+never appear. Model-proposed arguments are displayed before execution;
+they are not evidence that an operation succeeded.
+
 ## Test
 
 Run the complete normal test suite:
