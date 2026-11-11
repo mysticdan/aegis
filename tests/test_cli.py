@@ -30,6 +30,7 @@ def run(*args, input_text=None, extra_env=None, cwd=None):
         "AEGIS_MOCK_KEY",
         "AEGIS_MOCK_RESPONSE",
         "AEGIS_MOCK_RESPONSES",
+        "AEGIS_MOCK_REASONING_SUMMARY",
     ):
         environment.pop(name, None)
     if extra_env:
@@ -1299,6 +1300,7 @@ def test_interrupt(temporary):
             "AEGIS_RESOURCE_DIR",
             "AEGIS_MOCK_RESPONSE",
             "AEGIS_MOCK_RESPONSES",
+            "AEGIS_MOCK_REASONING_SUMMARY",
         ):
             environment.pop(name, None)
         environment["OPENAI_API_KEY"] = "interrupt-test-key"
@@ -1339,6 +1341,51 @@ def test_interrupt(temporary):
         thread.join()
 
 
+def test_cli_transparency(temporary):
+    workspace = temporary / "transparency"
+    workspace.mkdir()
+    expect_code(run("init", "--workspace", str(workspace)), 0)
+    responses = json.dumps([
+        {
+            "type": "tool_call",
+            "tool": "write_file",
+            "arguments": {
+                "path": "new.txt",
+                "content": "private contents not displayed",
+            },
+        },
+        {"type": "final", "message": "transparency completed"},
+    ])
+    env = {
+        "AEGIS_MOCK_RESPONSES": responses,
+        "AEGIS_MOCK_REASONING_SUMMARY": "Checking the file operation",
+    }
+    result = run("run", "--provider", "mock", "--yes", "--task", "write file",
+                 extra_env=env, cwd=workspace)
+    expect_code(result, 0)
+    assert "Thinking: waiting for model" in result.stderr
+    assert "Provider reasoning summary: Checking the file operation" in result.stderr
+    assert "Agent requests tool: write_file" in result.stderr
+    assert "path: new.txt" in result.stderr
+    assert "body hidden" in result.stderr
+    assert "private contents not displayed" not in result.stderr
+    assert "Permission: granted" in result.stderr
+    assert "Tool write_file: OK" in result.stderr
+
+    result = run("run", "--provider", "mock", "--yes", "--json",
+                 "--task", "write file", extra_env=env, cwd=workspace)
+    expect_code(result, 0)
+    assert parse_json(result)["status"] == "success"
+    assert "Thinking:" not in result.stderr
+
+    result = run("run", "--provider", "mock", "--json", "--no-input",
+                 "--task", "write file", extra_env=env, cwd=workspace)
+    expect_code(result, 8)
+    assert "Agent requests tool: write_file" in result.stderr
+    assert "path: new.txt" in result.stderr
+    assert "private contents not displayed" not in result.stderr
+
+
 def main():
     test_help_and_version()
     test_tools_and_config()
@@ -1354,6 +1401,7 @@ def main():
         test_http_and_mcp(temporary)
         test_http_providers(temporary)
         test_interrupt(temporary)
+        test_cli_transparency(temporary)
     print("aegis cli tests: ok")
 
 
