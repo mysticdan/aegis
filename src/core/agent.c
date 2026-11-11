@@ -137,6 +137,16 @@ static AegisStatus persist_reminder(
     );
 }
 
+static void emit_progress(
+    const AegisMessage *message,
+    AegisProgressEvent event
+)
+{
+    if (message && message->progress) {
+        message->progress(message->progress_userdata, &event);
+    }
+}
+
 static int approval_granted(
     const AegisMessage *message,
     const AegisTool *tool,
@@ -154,12 +164,16 @@ static int approval_granted(
     if (message->no_input || !isatty(STDIN_FILENO)) {
         return 0;
     }
-    fprintf(
-        stderr,
-        "Approval required for tool '%s' (risk=%s). Approve? [y/N] ",
-        tool->name,
-        aegis_tool_risk_name(tool->risk_level)
-    );
+    if (message->progress) {
+        fputs("Approve the tool call above? [y/N] ", stderr);
+    } else {
+        fprintf(
+            stderr,
+            "Approval required for tool '%s' (risk=%s). Approve? [y/N] ",
+            tool->name,
+            aegis_tool_risk_name(tool->risk_level)
+        );
+    }
     fflush(stderr);
     if (!fgets(answer, sizeof(answer), stdin)) {
         return 0;
@@ -460,8 +474,17 @@ AegisStatus aegis_agent_run(
             "model_request",
             "{\"status\":\"sent\"}"
         );
+        emit_progress(message, (AegisProgressEvent) {
+            .kind = AEGIS_PROGRESS_MODEL_REQUEST,
+            .step = step,
+            .detail = provider.name
+        });
         status = call_provider(config, &provider, &request, &llm);
         if (status != AEGIS_OK) {
+            emit_progress(message, (AegisProgressEvent) {
+                .kind = AEGIS_PROGRESS_MODEL_ERROR,
+                .step = step
+            });
             payload = json_payload_string(
                 "error",
                 llm.error_message ? llm.error_message : aegis_status_string(status)
@@ -481,6 +504,18 @@ AegisStatus aegis_agent_run(
                 ? status
                 : AEGIS_ERR_PROVIDER;
         }
+        emit_progress(message, (AegisProgressEvent) {
+            .kind = AEGIS_PROGRESS_MODEL_RESPONSE,
+            .step = step,
+            .duration_ms = llm.latency_ms
+        });
+        if (llm.reasoning_summary && llm.reasoning_summary[0]) {
+            emit_progress(message, (AegisProgressEvent) {
+                .kind = AEGIS_PROGRESS_REASONING_SUMMARY,
+                .step = step,
+                .detail = llm.reasoning_summary
+            });
+        }
         payload = json_payload_string("content", llm.content);
         record_event(
             state, trace, message->session_id, step, "model_response",
@@ -495,6 +530,10 @@ AegisStatus aegis_agent_run(
                 "valid json_action_v1 object with type final or tool_call.";
 
             ++repair_attempts;
+            emit_progress(message, (AegisProgressEvent) {
+                .kind = AEGIS_PROGRESS_INVALID_RESPONSE,
+                .step = step
+            });
             if (history_count == 0U) {
                 status = append_event(
                     owned_history,
@@ -589,6 +628,15 @@ AegisStatus aegis_agent_run(
                 "tool_call",
                 tool_payload ? tool_payload : "{}"
             );
+            /* Visible BEFORE approval and any execution. */
+            emit_progress(message, (AegisProgressEvent) {
+                .kind = AEGIS_PROGRESS_TOOL_CALL,
+                .step = step,
+                .tool = action.tool,
+                .payload_json = tool_payload,
+                .decision = decision,
+                .risk = tool ? aegis_tool_risk_name(tool->risk_level) : "unknown"
+            });
             cJSON_free(tool_payload);
             if (!tool || !decision) {
                 status = AEGIS_ERR_POLICY_DENIED;
@@ -611,6 +659,15 @@ AegisStatus aegis_agent_run(
                         "approval",
                         approval_payload ? approval_payload : "{}"
                     );
+                    emit_progress(message, (AegisProgressEvent) {
+                        .kind = AEGIS_PROGRESS_APPROVAL,
+                        .step = step,
+                        .tool = action.tool,
+                        .success = approved,
+                        .detail = message->auto_approve &&
+                            tool->risk_level != AEGIS_RISK_CRITICAL
+                            ? "automatic" : "manual"
+                    });
                     cJSON_free(approval_payload);
                 }
                 if (strcmp(decision, "require_approval") == 0 && !approved) {
@@ -660,6 +717,15 @@ AegisStatus aegis_agent_run(
                 "tool_result",
                 observation ? observation : "{}"
             );
+            emit_progress(message, (AegisProgressEvent) {
+                .kind = AEGIS_PROGRESS_TOOL_RESULT,
+                .step = step,
+                .tool = action.tool,
+                .success = status == AEGIS_OK && result.ok,
+                .exit_code = result.exit_code,
+                .output_bytes = result.output_bytes,
+                .duration_ms = result.duration_ms
+            });
             clear_tool_args(items, owned_values, args.count);
             aegis_tool_result_clear(&result);
             if (!observation) {
