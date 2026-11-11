@@ -185,6 +185,8 @@ int aegis_cli_cmd_resume(const CliOptions *options)
         message.send_message = resume_send_message;
     }
     message.is_cancelled = cli_interrupted;
+    message.progress = cli_agent_progress;
+    message.progress_userdata = (void *)options;
     message.initial_step = record.steps;
     aegis_response_init(&response);
     runtime = aegis_runtime_new_with_config(&environment.config);
