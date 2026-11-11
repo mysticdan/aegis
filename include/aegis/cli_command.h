@@ -6,6 +6,7 @@
 #include <cjson/cJSON.h>
 
 #include "aegis/cli.h"
+#include "aegis/message.h"
 
 int cli_json_print(cJSON *root);
 int cli_error(
@@ -63,6 +64,7 @@ int cli_confirm_agent_execution(
     int dry_run
 );
 int cli_interrupted(void *userdata);
+void cli_agent_progress(void *userdata, const AegisProgressEvent *event);
 
 int aegis_cli_cmd_init(const CliOptions *options);
 int aegis_cli_cmd_run(const CliOptions *options);
