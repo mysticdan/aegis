@@ -148,6 +148,7 @@ set(AEGIS_CLI_SOURCES
     src/cli/cli_eval.c
     src/cli/cli_mcp.c
     src/cli/cli_run.c
+    src/cli/cli_progress.c
     src/cli/cli_version.c
     src/cli/cli_help.c
     src/core/command.c
